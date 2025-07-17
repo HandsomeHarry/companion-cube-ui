@@ -2,7 +2,7 @@
 
 **Companion Cube** is a comprehensive ADHD productivity assistant that combines activity monitoring, AI-powered insights, and contextual interventions to help users maintain focus and productivity. The system features both a CLI interface and a modern desktop GUI built with Tauri and React.
 
-## 🎯 Features
+## Features
 
 ### Core Functionality
 - **Activity Monitoring**: Integrates with ActivityWatch to track computer usage patterns
@@ -18,7 +18,7 @@
 - **Dark/Light Mode**: Fully themed interface with custom scrollbars
 - **Responsive Design**: Adapts to different screen sizes with flexible card layouts
 
-## 🏗️ Architecture
+## Architecture
 
 ### Technology Stack
 - **Backend**: Rust with Tauri for cross-platform desktop application
@@ -53,7 +53,7 @@ companion-cube/
     └── modes.ts           # Mode-based styling and display logic
 ```
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 1. **ActivityWatch**: Download and install from https://activitywatch.net/
@@ -71,41 +71,21 @@ companion-cube/
 ### Installation
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/HandsomeHarry/companion-cube-ui
 cd companion-cube
 
 # Install frontend dependencies
 npm install
 
 # Build the Rust backend
+cd src-tauri
 cargo build --release
 
 # Run the desktop application
-npm run tauri dev
+npm run
 ```
 
-### CLI Usage
-```bash
-# Run with default settings (coach mode)
-cargo run
-
-# Run with specific mode and interval
-cargo run -- --mode study_buddy --interval 30
-
-# Test mode (single check)
-cargo run -- --test
-
-# Verbose mode with detailed LLM analysis
-cargo run -- --verbose
-
-# Test connections to ActivityWatch and Ollama
-cargo run -- --test-connections
-
-# Generate daily summary
-cargo run -- --daily-summary
-```
-
-## 🎮 Usage Modes
+## Usage Modes
 
 ### Available Modes
 - **Ghost Mode**: Minimal interventions, monitoring only
@@ -135,7 +115,7 @@ The system supports personalized responses through user-defined context stored i
 - **Focus Threshold**: Minimum time in same app to consider focus session
 - **Context Switching**: Detects rapid app switching for productivity nudges
 
-## 🔄 Data Flow
+## Data Flow
 
 1. **Data Collection**: ActivityWatch client fetches activity data across multiple timeframes
 2. **State Analysis**: LLM analyzes raw activity data to determine user state
@@ -143,7 +123,7 @@ The system supports personalized responses through user-defined context stored i
 4. **Response Generation**: Creates contextual, ADHD-friendly prompts and responses
 5. **Logging & Summaries**: Tracks activity logs and generates periodic reports
 
-## 🎨 Customization
+## Customization
 
 ### Theming
 The application supports comprehensive theming with:
@@ -157,7 +137,7 @@ The application supports comprehensive theming with:
 - **Custom Prompts**: Modify LLM prompts in `src/event_processor.rs`
 - **UI Components**: Add new React components in `src/components/`
 
-## 📊 Data Management
+## Data Management
 
 ### Storage
 - **Activity Logs**: 5-minute summaries (last 7 days)
@@ -169,7 +149,7 @@ The application supports comprehensive theming with:
 - **Configurable Tracking**: Users control what data is collected
 - **No External APIs**: Optional Ollama integration runs locally
 
-## 🛠️ Development
+## 🛠Development
 
 ### Building
 ```bash
@@ -192,7 +172,7 @@ npm test
 - **React**: Modern functional components with hooks
 - **Tailwind**: Utility-first CSS with custom theme system
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 1. **ActivityWatch Not Connected**: Ensure ActivityWatch is running on port 5600
@@ -205,7 +185,7 @@ Use `--verbose` flag for detailed logging:
 cargo run -- --verbose --test
 ```
 
-## 📈 Performance
+## Performance
 
 ### Optimization Features
 - **Efficient Data Processing**: Minimal memory usage with streaming data
@@ -218,7 +198,7 @@ cargo run -- --verbose --test
 - **CPU**: Low background usage, periodic analysis spikes
 - **Storage**: <10MB for application, variable for activity logs
 
-## 🤝 Contributing
+## Contributing
 
 ### Development Setup
 1. Fork the repository
@@ -232,11 +212,11 @@ cargo run -- --verbose --test
 - **TypeScript**: Use functional components with TypeScript interfaces
 - **Commits**: Use conventional commit messages
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **ActivityWatch**: For providing the activity monitoring foundation
 - **Ollama**: For local LLM integration capabilities
