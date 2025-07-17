@@ -1,0 +1,36 @@
+{
+  "todos": [
+    {
+      "id": "todo_0",
+      "text": "Research basic woodworking tools and their uses (high)",
+      "completed": false,
+      "created_at": "2025-07-18 00:50:17"
+    },
+    {
+      "id": "todo_1",
+      "text": "Find a beginner's woodworking course online or locally (medium)",
+      "completed": false,
+      "created_at": "2025-07-18 00:50:17"
+    },
+    {
+      "id": "todo_2",
+      "text": "Create a list of essential woodworking tools to start building your own workshop (low)",
+      "completed": false,
+      "created_at": "2025-07-18 00:50:17"
+    },
+    {
+      "id": "todo_3",
+      "text": "Set up a designated workspace at home for woodworking projects (medium)",
+      "completed": false,
+      "created_at": "2025-07-18 00:50:17"
+    },
+    {
+      "id": "todo_4",
+      "text": "Start small by creating simple wooden items like a coaster or a picture frame to practice skills (high)",
+      "completed": false,
+      "created_at": "2025-07-18 00:50:17"
+    }
+  ],
+  "generated_at": "2025-07-18 00:50:15",
+  "context": "learn woodworking"
+}

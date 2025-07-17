@@ -1,0 +1,82 @@
+[
+    {
+        "id": 24940,
+        "timestamp": "2025-07-17T07:57:43.160000+00:00",
+        "duration": 0.0,
+        "data": {
+            "language": "json",
+            "project": "/e:/cc",
+            "file": "e:\\cc\\examples\\activitywatch_bucket_examples.json"
+        }
+    },
+    {
+        "id": 24939,
+        "timestamp": "2025-07-17T07:57:43.144000+00:00",
+        "duration": 0.0,
+        "data": {
+            "language": "unknown",
+            "project": "unknown",
+            "file": "unknown"
+        }
+    },
+    {
+        "id": 24936,
+        "timestamp": "2025-07-17T07:57:30.394000+00:00",
+        "duration": 0.0,
+        "data": {
+            "language": "rust",
+            "project": "/e:/cc",
+            "file": "e:\\cc\\src\\event_processor.rs"
+        }
+    },
+    {
+        "id": 24935,
+        "timestamp": "2025-07-17T07:57:30.387000+00:00",
+        "duration": 0.0,
+        "data": {
+            "language": "unknown",
+            "project": "unknown",
+            "file": "unknown"
+        }
+    },
+    {
+        "id": 24920,
+        "timestamp": "2025-07-17T07:54:16.055000+00:00",
+        "duration": 12.567,
+        "data": {
+            "language": "rust",
+            "project": "/e:/cc",
+            "file": "e:\\cc\\src\\test_buckets.rs"
+        }
+    },
+    {
+        "id": 24919,
+        "timestamp": "2025-07-17T07:54:16.035000+00:00",
+        "duration": 0.0,
+        "data": {
+            "language": "unknown",
+            "project": "unknown",
+            "file": "unknown"
+        }
+    },
+    {
+        "id": 24854,
+        "timestamp": "2025-07-17T07:46:40.062000+00:00",
+        "duration": 9.18,
+        "data": {
+            "language": "json",
+            "project": "/e:/cc",
+            "file": "e:\\cc\\src-tauri\\data\\config.json"
+        }
+    },
+    {
+        "id": 24853,
+        "timestamp": "2025-07-17T07:46:40.052000+00:00",
+        "duration": 0.0,
+        "data": {
+            "language": "unknown",
+            "project": "unknown",
+            "file": "unknown"
+        }
+    }
+]

@@ -1,0 +1,160 @@
+{
+  "description": "Examples of ActivityWatch bucket content and data structures",
+  "buckets": {
+    "aw-watcher-window_hostname": {
+      "description": "Window activity events - tracks active windows and applications",
+      "example_bucket_info": {
+        "id": "aw-watcher-window_hostname",
+        "name": "aw-watcher-window_hostname",
+        "type": "currentwindow",
+        "client": "aw-watcher-window",
+        "hostname": "your-computer-name",
+        "created": "2024-01-01T00:00:00Z",
+        "last_updated": "2024-01-01T12:00:00Z"
+      },
+      "sample_events": [
+        {
+          "id": 1,
+          "timestamp": "2024-01-01T10:00:00Z",
+          "duration": 120.5,
+          "data": {
+            "app": "firefox",
+            "title": "GitHub - ActivityWatch Documentation",
+            "url": "https://github.com/ActivityWatch/activitywatch",
+            "incognito": false
+          }
+        },
+        {
+          "id": 2,
+          "timestamp": "2024-01-01T10:02:00Z",
+          "duration": 45.2,
+          "data": {
+            "app": "code",
+            "title": "main.rs - companion-cube - Visual Studio Code",
+            "url": null,
+            "incognito": false
+          }
+        },
+        {
+          "id": 3,
+          "timestamp": "2024-01-01T10:02:45Z",
+          "duration": 180.8,
+          "data": {
+            "app": "terminal",
+            "title": "Terminal - cargo run",
+            "url": null,
+            "incognito": false
+          }
+        }
+      ]
+    },
+    "aw-watcher-afk_hostname": {
+      "description": "AFK (Away From Keyboard) status events",
+      "example_bucket_info": {
+        "id": "aw-watcher-afk_hostname",
+        "name": "aw-watcher-afk_hostname",
+        "type": "afkstatus",
+        "client": "aw-watcher-afk",
+        "hostname": "your-computer-name",
+        "created": "2024-01-01T00:00:00Z",
+        "last_updated": "2024-01-01T12:00:00Z"
+      },
+      "sample_events": [
+        {
+          "id": 1,
+          "timestamp": "2024-01-01T10:00:00Z",
+          "duration": 300.0,
+          "data": {
+            "status": "not-afk"
+          }
+        },
+        {
+          "id": 2,
+          "timestamp": "2024-01-01T10:05:00Z",
+          "duration": 120.0,
+          "data": {
+            "status": "afk"
+          }
+        },
+        {
+          "id": 3,
+          "timestamp": "2024-01-01T10:07:00Z",
+          "duration": 600.0,
+          "data": {
+            "status": "not-afk"
+          }
+        }
+      ]
+    },
+    "aw-watcher-web-firefox": {
+      "description": "Web browsing events (when web watcher is enabled)",
+      "example_bucket_info": {
+        "id": "aw-watcher-web-firefox",
+        "name": "aw-watcher-web-firefox",
+        "type": "web.tab.current",
+        "client": "aw-watcher-web-firefox",
+        "hostname": "your-computer-name",
+        "created": "2024-01-01T00:00:00Z",
+        "last_updated": "2024-01-01T12:00:00Z"
+      },
+      "sample_events": [
+        {
+          "id": 1,
+          "timestamp": "2024-01-01T10:00:00Z",
+          "duration": 45.3,
+          "data": {
+            "url": "https://github.com/ActivityWatch/activitywatch",
+            "title": "GitHub - ActivityWatch: The best free and open-source automated time tracker",
+            "audible": false,
+            "incognito": false,
+            "tabCount": 3
+          }
+        },
+        {
+          "id": 2,
+          "timestamp": "2024-01-01T10:00:45Z",
+          "duration": 120.7,
+          "data": {
+            "url": "https://docs.activitywatch.net/",
+            "title": "ActivityWatch Documentation",
+            "audible": false,
+            "incognito": false,
+            "tabCount": 3
+          }
+        }
+      ]
+    }
+  },
+  "data_structure_notes": {
+    "event_format": {
+      "id": "Unique event identifier (number)",
+      "timestamp": "ISO 8601 timestamp string (when event started)",
+      "duration": "Duration in seconds (float)",
+      "data": "Event-specific data (object with varying fields)"
+    },
+    "common_data_fields": {
+      "window_events": {
+        "app": "Application name (string)",
+        "title": "Window title (string)",
+        "url": "URL if applicable (string or null)",
+        "incognito": "Whether in incognito/private mode (boolean)"
+      },
+      "afk_events": {
+        "status": "Either 'afk' or 'not-afk' (string)"
+      },
+      "web_events": {
+        "url": "Current webpage URL (string)",
+        "title": "Page title (string)",
+        "audible": "Whether page is playing audio (boolean)",
+        "incognito": "Whether in incognito mode (boolean)",
+        "tabCount": "Number of open tabs (number)"
+      }
+    },
+    "json_format": "Yes, all ActivityWatch data is in JSON format",
+    "api_endpoints": {
+      "buckets": "GET /api/0/buckets - List all buckets",
+      "events": "GET /api/0/buckets/{bucket_id}/events - Get events from bucket",
+      "query": "POST /api/0/query - Run custom queries"
+    }
+  }
+}

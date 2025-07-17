@@ -1,0 +1,75 @@
+# Tauri Companion Cube .gitignore
+
+# Rust/Cargo build artifacts
+target/
+**/target/
+Cargo.lock
+
+# Node.js dependencies and build artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Build outputs
+dist/
+build/
+
+# Runtime data and user-generated content
+src-tauri/data/
+*.txt
+*.log
+
+# Tauri generated files
+src-tauri/gen/
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.parcel-cache/
+
+# Development and testing files
+test_buckets.sh
+examples/
+
+# Platform-specific build artifacts
+*.exe
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+
+# Rust-specific
+**/*.rs.bk
+
+# TypeScript compilation
+*.tsbuildinfo
+
+# Misc
+.vite/
+.claude/
+target/

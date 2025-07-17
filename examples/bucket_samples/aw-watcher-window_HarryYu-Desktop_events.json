@@ -1,0 +1,92 @@
+[
+    {
+        "id": 24946,
+        "timestamp": "2025-07-17T07:58:54.764000+00:00",
+        "duration": 7.083,
+        "data": {
+            "app": "Discord.exe",
+            "title": "#relaxation-vault | Aperture Science Enrichment Center - Discord"
+        }
+    },
+    {
+        "id": 24945,
+        "timestamp": "2025-07-17T07:58:52.741000+00:00",
+        "duration": 1.013,
+        "data": {
+            "app": "Discord.exe",
+            "title": "@zaredo - Discord"
+        }
+    },
+    {
+        "id": 24944,
+        "timestamp": "2025-07-17T07:58:38.579000+00:00",
+        "duration": 13.145,
+        "data": {
+            "app": "Code.exe",
+            "title": "activitywatch_bucket_examples.json - cc - Visual Studio Code"
+        }
+    },
+    {
+        "id": 24943,
+        "timestamp": "2025-07-17T07:58:17.328000+00:00",
+        "duration": 20.23,
+        "data": {
+            "app": "brave.exe",
+            "title": "\u25b6\ufe0f My workflow - n8n localhost - Brave"
+        }
+    },
+    {
+        "id": 24942,
+        "timestamp": "2025-07-17T07:58:16.307000+00:00",
+        "duration": 0.0,
+        "data": {
+            "app": "brave.exe",
+            "title": "jq command - Google Search www.google.com - Brave"
+        }
+    },
+    {
+        "id": 24941,
+        "timestamp": "2025-07-17T07:57:43.950000+00:00",
+        "duration": 31.343,
+        "data": {
+            "app": "Code.exe",
+            "title": "activitywatch_bucket_examples.json - cc - Visual Studio Code"
+        }
+    },
+    {
+        "id": 24938,
+        "timestamp": "2025-07-17T07:57:30.790000+00:00",
+        "duration": 12.153,
+        "data": {
+            "app": "Code.exe",
+            "title": "event_processor.rs - cc - Visual Studio Code"
+        }
+    },
+    {
+        "id": 24937,
+        "timestamp": "2025-07-17T07:57:28.776000+00:00",
+        "duration": 1.009,
+        "data": {
+            "app": "explorer.exe",
+            "title": ""
+        }
+    },
+    {
+        "id": 24934,
+        "timestamp": "2025-07-17T07:57:09.586000+00:00",
+        "duration": 18.18,
+        "data": {
+            "app": "WindowsTerminal.exe",
+            "title": "Windows PowerShell"
+        }
+    },
+    {
+        "id": 24933,
+        "timestamp": "2025-07-17T07:57:07.564000+00:00",
+        "duration": 1.009,
+        "data": {
+            "app": "youtube-music-desktop-app.exe",
+            "title": "YouTube Music | YouTube Music Desktop App"
+        }
+    }
+]
