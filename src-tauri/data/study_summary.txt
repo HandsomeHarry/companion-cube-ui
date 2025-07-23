@@ -1,7 +1,7 @@
 ---
-01:04
-Based on the lack of recent activity data, it is not possible to determine if you are focused on studying for 'asdasd'.
-50
-unknown
+14:37
+The user has been active on a programming project (lib.rs) in Visual Studio Code and terminal sessions, which suggests some focus on coding or studying. However, extended periods of time were also spent on non-study related activities such as watching YouTube videos and socializing on Discord. The focus score is approximately 60.
+60
+mixed
 Mode: study
-Focus: asdasd
+Focus: general studying

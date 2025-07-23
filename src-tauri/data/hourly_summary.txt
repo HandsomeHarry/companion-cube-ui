@@ -1,875 +1,210 @@
-1
-🎯 Time for a gentle nudge. Currently: gaming and file management. The user has been active for a total of 5.35 minutes over the last 30 minutes, with multiple context switches (8) between different applications. The dominant apps used are brave.exe, baidunetdiskunite.exe, and autoupdate.exe. While gaming on Steam is not inherently unproductive, the frequent context switching suggests potential distraction or task exploration. Additionally, the short duration of focus on each application indicates a variable focus trend.
-45
-2025-07-17 01:27:272
-🎯 Time for a gentle nudge. Currently: context switching between coding, communication, and file exploration. The user has been active for a total of 2.38 minutes in the last 5 minutes, with 8 context switches among 4 unique apps. This suggests a moderate level of distraction as they are not maintaining focus on one task for an extended period (>15min). The dominant apps used include code.exe, qq.exe, explorer.exe, and windowsterminal.exe. The user's activity pattern indicates that they are likely exploring multiple tasks rather than being deep in work.
-45
-2025-07-17 02:27:43
----
-2
-🎯 Time for a gentle nudge. Currently: multitasking and switching between tasks. The user has been active for a total of 2.46 minutes over the last 5 minutes, with 9 context switches between 5 unique apps. The dominant app in this timeframe is code.exe, but the short duration (0.17min) suggests that the focus on coding was brief. This pattern indicates a moderate level of distraction and a variable focus trend.
-45
-2025-07-17 02:27:50
----
-2
-🎯 Time for a gentle nudge. Currently: Multiple rapid app switches. The user has been active for the past 5 minutes, with a total of 2.56 minutes spent actively using applications. There were 10 context switches between 5 unique apps. The dominant apps used include Code.exe, QQ.exe, windowsterminal.exe, app.exe, and explorer.exe. This pattern suggests a moderate level of distraction as the user is switching between several applications rapidly. The focus trend can be classified as variable due to the short duration spent on each application. Therefore, it's recommended to provide a nudge to help the user maintain focus.
-45
-2025-07-17 02:27:57
----
-2
-🎯 Time for a gentle nudge. Currently: context switching between multiple apps. The user has been active for the past 5 minutes, with a total of 2.5 minutes spent actively working. However, there were 12 context switches within this timeframe, indicating a high level of distraction or task exploration. The dominant apps used include code.exe, app.exe, explorer.exe, windowsterminal.exe, and qq.exe. This suggests that the user is not maintaining focus on one task for an extended period (>15min), which is a key indicator of flow state.
-45
-2025-07-17 02:28:18
----
-2
-💼 Productive work session on coding and using terminal. The user has been actively engaged in coding (Code.exe) and using the terminal (windowsterminal.exe), spending a significant amount of time on these applications. The focus duration is long, indicating a flow state. Context switching behavior is minimal, suggesting focus. The dominant apps used over different timeframes also indicate a consistent pattern of work.
-75
-working
-2025-07-17 02:51:04
----
-2
-💼 Productive work session on coding. The user has been actively using a code editor (Code.exe) for a total of 4.08 minutes in the last hour, which suggests they are maintaining focus and working. The context switching behavior is minimal with only three switches over the past 30 minutes, indicating a low level of distraction. The dominant apps used over the timeframes suggest that the user is primarily engaged in coding.
-75
-working
-2025-07-17 02:51:35
----
-2
-💼 Productive work session on coding. The user has been actively using a code editor (Code.exe) for a significant portion of the recent timeframe, indicating a focus on coding tasks. The number of context switches is relatively low, suggesting a stable and focused work environment. The duration spent on entertainment or gaming applications is minimal, further supporting the 'working' state.
-75
-working
-2025-07-17 02:51:39
----
-2
-🎯 Time for a gentle nudge. Currently: switching between apps and entertainment. The user has been switching between multiple apps, including PotPlayerMini64.exe (entertainment) and app.exe, within short intervals, suggesting a moderate level of distraction. The focus duration on any single app is relatively brief, indicating a declining focus trend. However, the Code.exe application was used for 4.08 minutes in the last 30 minutes, which could suggest some work is being done but the frequent context switching indicates a need for improvement.
-48
-needs_nudge
-2025-07-17 02:52:01
----
-2
-🎯 Time for a gentle nudge. Currently: context switching between apps. The user has been context switching rapidly between multiple apps, which may indicate distractibility or task exploration. The focus duration is not long enough to suggest a flow state (<15min). The dominant apps used are PotPlayerMini64.exe, app.exe, and windowsterminal.exe, which could suggest entertainment/games or working, but the context switching behavior suggests a need for focus. Therefore, the user's current state is 'needs_nudge'.
-45
-needs_nudge
-2025-07-17 02:52:24
----
-2
-🎯 Time for a gentle nudge. Currently: context switching between apps. The user has shown a pattern of rapid context switching between multiple applications, which may indicate distractibility or task exploration. The focus duration is not sustained for long sessions (>15min) in one app, suggesting a variable focus trend. The distraction trend appears to be increasing due to the frequent app switches. Therefore, the user needs a nudge to help refocus.
-45
-needs_nudge
-2025-07-17 02:52:28
----
-2
-🎯 Time for a gentle nudge. Currently: Multiple app usage with frequent context switching. The user has shown a variable focus trend, as indicated by the declining active time and increasing context switches. The dominant apps used in the recent 5 minutes suggest a mix of coding, file exploration, and media consumption. However, the rapid app switching behavior may indicate distractibility or task exploration. Therefore, it seems that the user needs a nudge to help maintain focus.
-45
-needs_nudge
-2025-07-17 02:53:51
----
-2
-🎯 Time for a gentle nudge. Currently: Multiple app usage. The user has been using multiple apps in the last 30 minutes, with rapid context switching between app.exe, code.exe, and explorer.exe. This suggests a moderate level of distraction and a variable focus trend. The duration spent on each app is brief, indicating a need for nudge to maintain focus.
-45
-needs_nudge
-2025-07-17 02:54:14
----
-2
-🎯 Time for a gentle nudge. Currently: Multiple rapid app switches. The user has shown moderate levels of distraction, as indicated by the frequent context switching between three different applications within a short timeframe. The focus trend is variable due to this pattern. The primary activity is multiple rapid app switches.
-45
-needs_nudge
-2025-07-17 02:54:17
----
-2
-💼 Productive work session on coding. The user has been actively using a code editor (Code.exe) for the past 5 minutes, with a total of 1.43 minutes of active time. The context switching behavior is minimal, with only two switches between Code.exe and explorer.exe. This suggests that the user is maintaining their focus on coding tasks.
-75
-working
-2025-07-17 02:55:41
----
-2
-💼 Productive work session on coding. The user has been actively engaged in coding for the past 30 minutes, with a focus duration of more than 15 minutes. The context switching behavior is minimal, indicating a focused work session. The dominant app used during this period was Code.exe, which suggests a productive state.
-75
-working
-2025-07-17 02:56:05
----
-2
-💼 Productive work session on coding. The user has been actively using the code editor for a significant portion of their time, indicating focus and maintenance of their current task. The context switching behavior is minimal, suggesting a low level of distraction. The confidence in this analysis is high as the user's activity pattern aligns with productive work.
-75
-working
-2025-07-17 02:56:08
----
-2
-💼 Productive work session on coding. The user has been actively using the Code.exe application for a significant portion of their time, indicating a focus on coding tasks. The context switching behavior is minimal, suggesting a maintained focus. The duration spent in the Code.exe application is longer than 15 minutes, which is another indicator of a flow state. Therefore, the current state is 'working' and the focus trend is 'maintaining_focus'.
-75
-working
-2025-07-17 02:56:52
----
-2
-💼 Productive work session on coding. The user has been actively using the Code.exe application for a significant portion of the recent timeframe, with a focus duration that suggests they are in a flow state. The context switching behavior is minimal, indicating a focused effort on the coding task. The user's current activity timeline shows consistent usage of the code editor, which further supports the 'working' state.
-75
-working
-2025-07-17 02:56:56
----
-3
-💼 Productive work session on coding. The user has been actively using a code editor (Code.exe) for the majority of the recent timeframe, with only two context switches in the last 5 minutes. The focus duration is above 15 minutes, indicating a flow state. Additionally, the dominant apps used over the past hour include app.exe, code.exe, and windowsterminal.exe, which are productivity tools. Therefore, the user's current state is 'working', maintaining focus, with low distractions.
-75
-working
-2025-07-17 03:03:04
----
-3
-💼 Productive work session on coding. The user has been actively using a code editor (Code.exe) for the past 30 minutes, with a focus duration of more than 15 minutes. The context switching behavior is moderate but not rapid, indicating that the user may be exploring different aspects of their task. The dominant app used in the recent timeframe is Code.exe, which suggests that the user is deeply engaged in coding. The confidence level is high as the user's activity pattern indicates a focus on work.
-75
-working
-2025-07-17 03:03:21
----
-3
-💼 Productive work session on coding. The user has been actively using a code editor for the past 5 minutes and 30 minutes, with a total of 3 context switches. The focus duration is long (>15min) in one app (Code.exe), suggesting a flow state. The activity patterns indicate deep work as the dominant apps used are Code.exe, windowsterminal.exe, and app.exe which are productivity tools.
-75
-working
-2025-07-17 03:03:25
----
-3
-💼 Productive work session on coding and using terminal. The user has been actively engaged in coding and terminal usage for a significant amount of time, with focus durations exceeding the 15-minute threshold. The context switching behavior is moderate but not rapid, suggesting a deliberate exploration of tasks rather than distraction. The dominant apps used are code editor (Code.exe) and terminal (WindowsTerminal.exe), both of which are productivity indicators.
-75
-working
-2025-07-17 03:03:56
----
-3
-🎯 Time for a gentle nudge. Currently: switching between tasks. The user has shown moderate context switching behavior, with three switches in the last 5 minutes and seven switches in the last 30 minutes. The dominant apps used include code editor (Code.exe), terminal (WindowsTerminal.exe), and app.exe. However, the focus duration on each app is relatively short, suggesting a variable focus trend. The user's current state is 'needs_nudge', as it appears they may benefit from some encouragement to maintain focus.
-45
-needs_nudge
-2025-07-17 03:03:59
----
-3
-💼 Productive work session on coding. The user has been actively using a code editor (Code.exe) for a significant portion of the analyzed timeframe, indicating focus and productivity. The context switching behavior is minimal, suggesting a stable workflow. The duration spent in the code editor also indicates a flow state.
-75
-working
-2025-07-17 03:04:52
----
-3
-💼 Productive work session on coding and using terminal. The user has been actively engaged in the code editor (Code.exe) and terminal (WindowsTerminal.exe) for a significant amount of time, indicating a focus on their work. The context switching behavior is minimal, suggesting a stable and focused state. The duration spent on other apps like app.exe is brief, further supporting the 'working' state.
-75
-working
-2025-07-17 03:05:09
----
-3
-💼 Productive work session on coding and using terminal. The user has been actively working in the code editor (Code.exe) and terminal (WindowsTerminal.exe), with a focus duration of more than 15 minutes, indicating a flow state. The number of context switches is moderate but not rapid, suggesting focused exploration rather than distractibility. The dominant apps used over the last hour indicate that the user is deeply engaged in work.
-75
-working
-2025-07-17 03:05:25
----
-3
-🎯 Time for a gentle nudge. Currently: browsing. The user has been active for the past 5 minutes, but their focus duration is short (<15min) and they have made 3 context switches between different apps. The dominant app used in the last 5 minutes was brave.exe, which suggests web browsing behavior. While it's not explicitly a game, code.exe being a game in this user's context, the frequent switching indicates potential distraction or task exploration.
-45
-needs_nudge
-2025-07-17 03:15:03
----
-3
-🎯 Time for a gentle nudge. Currently: web browsing. The user has been active for the past 5 minutes, but their focus duration is short, with multiple context switches between different applications. The dominant app used in this timeframe is brave.exe, which suggests web browsing behavior. This pattern indicates a moderate level of distraction, as the user is not maintaining a consistent focus on one task for an extended period. Therefore, it would be beneficial to provide a nudge to help refocus the user.
-45
-needs_nudge
-2025-07-17 03:15:33
----
-3
-🎯 Time for a gentle nudge. Currently: web browsing. The user has shown moderate context switching behavior, indicating some level of distraction. The primary app used is Brave.exe, which suggests web browsing activity. However, the focus duration is not long enough to suggest a flow state. The user's productivity trend appears to be variable, as there are periods of active time but also periods of inactivity or short-lived focus.
-45
-needs_nudge
-2025-07-17 03:16:31
----
-3
-💼 Productive work session on coding. The user has been actively using a code editor (Code.exe) for the past 30 minutes, with a total active time of 10.04 minutes in this period. The user also shows a stable productivity trend and low distraction level as indicated by the normal web browsing behavior and no rapid context switches.
-75
-working
-2025-07-17 03:29:59
----
-3
-💼 Productive work session on coding. The user has been actively using a code editor (Code.exe) for a significant amount of time (4.47 minutes in the last 30 minutes and 0.93 minutes in the recent 5 minutes), indicating a focus on coding. The number of context switches is moderate, which suggests some exploration or multitasking but not excessive distraction. The user's current activity timeline shows consistent coding sessions interspersed with brief breaks, suggesting a stable productivity trend.
-75
-working
-2025-07-17 03:30:57
----
-3
-💼 Productive work session on coding. The user has been actively coding for a significant period (11.8 minutes in the last 30 minutes), with only moderate context switching (12 switches in 30 minutes). The dominant app during this time is Code.exe, which suggests a focus on coding. The user's current application is also Code.exe, further indicating a flow state.
-75
-working
-2025-07-17 03:31:56
----
-3
-💼 Productive work session on coding. The user has been actively coding for a significant amount of time (>15min) in the Code.exe application, indicating a flow state. The number of context switches is relatively low, suggesting focus on the task at hand. The dominant apps used are related to productivity (Code.exe, app.exe), which further supports the 'working' state.
-75
-working
-2025-07-17 03:35:02
----
-3
-💼 Productive work session on coding and using app. The user has been actively engaged in coding (Code.exe) for a significant portion of the recent timeframe, with multiple sessions lasting over 1 minute each. The context switching behavior is minimal, suggesting focused work rather than distraction. Additionally, the user has also been active on app.exe, which based on context, could be a productivity tool. This indicates that the user is maintaining focus and working effectively.
-75
-working
-2025-07-17 03:39:11
----
-3
-🎯 Time for a gentle nudge. Currently: playing games and coding. The user has been active for the past 5 minutes, with a total of 3.76 minutes spent actively using applications. The user has shown moderate context switching behavior, indicating some level of distraction or task exploration. The dominant apps used in the last 5 minutes were code.exe and app.exe, suggesting that the user is engaging in both coding and gaming activities. This pattern indicates a variable focus trend, as the user seems to be shifting between productive tasks (coding) and less productive ones (gaming). The moderate distraction trend can be attributed to the frequent context switches.
-45
-needs_nudge
-2025-07-17 03:40:26
----
-3
-💼 Productive work session on coding and using terminal. The user has been actively using code.exe and app.exe for a significant amount of time, indicating focus on coding tasks. The context switch was minimal, suggesting the user is maintaining their focus. The duration spent on entertainment or gaming activities is negligible, indicating low distraction levels. Therefore, the user's current state is 'working', with a high confidence level.
-75
-working
-2025-07-17 03:40:54
----
-3
-🎯 Time for a gentle nudge. Currently: playing game (cs2.exe) and web browsing (brave.exe). The user has been engaged in multiple activities over the recent timeframes, indicating a moderate level of distraction. The user spent significant time on cs2.exe, which is a game, and also on brave.exe, a web browser. This pattern suggests that the user may need a nudge to refocus on a more productive task. The focus trend is variable as there are instances of longer focus durations (3.51 minutes in 5 minutes) but also frequent context switching (8 switches in 30 minutes).
-45
-needs_nudge
-2025-07-17 03:47:23
----
-3
-🎯 Time for a gentle nudge. Currently: gaming and web browsing. The user has shown moderate context switching behavior, spending time on gaming (cs2.exe) and web browsing (brave.exe). The focus duration is not long enough to suggest a flow state, with the longest session being 3.42 minutes in the recent 5 minutes. The user also spent some time coding (Code.exe), but this was intermittent. Given these patterns, it seems that the user could benefit from a nudge to refocus.
-45
-needs_nudge
-2025-07-17 03:47:34
----
-3
-💼 Productive work session on coding. The user has been actively using the code editor (Code.exe) for a significant amount of time (>15min), indicating a focus state. The context switching behavior is minimal, suggesting a stable work environment. The dominant apps used are related to productivity (code.exe, windowsterminal.exe).
-75
-working
-2025-07-17 03:48:28
----
-3
-🎯 Time for a gentle nudge. Currently: context switching between code editor and game. The user has been context switching rapidly between a code editor (Code.exe) and a game (cs2.exe), indicating a need for focus and potential distraction. The duration of focused time on each app is relatively short, suggesting a variable focus trend. The distraction trend appears to be increasing due to the frequent context switches.
-45
-needs_nudge
-2025-07-17 03:50:00
----
-3
-🎯 Time for a gentle nudge. Currently: playing games and coding. The user has been actively using multiple applications, including a game (CS:GO) and a code editor (Code.exe), with frequent context switches between them. This suggests that the user may be experiencing distractions or exploring tasks. The focus duration is not sustained for long periods (>15min). The increasing number of context switches also indicates an upward trend in distraction.
-45
-needs_nudge
-2025-07-17 03:54:34
----
-3
-🎯 Time for a gentle nudge. Currently: playing game (app.exe) and browsing (brave.exe). The user has been rapidly switching between apps, indicating a potential lack of focus or distraction. The dominant app used in the recent 5 minutes is brave.exe, which suggests web browsing. Additionally, the user has spent time on steamwebhelper.exe, which could be associated with gaming. The code.exe usage shows brief periods of focus but is intermittent. Given these patterns, it seems that the user may need a nudge to help them maintain focus.
-45
-needs_nudge
-2025-07-17 03:54:58
----
-3
-🎯 Time for a gentle nudge. Currently: Playing game (CS:GO) and browsing. The user has shown moderate levels of distraction, indicated by the high number of context switches within a short time frame. The dominant apps used in the recent 5 minutes were code.exe, brave.exe, steamwebhelper.exe, suggesting that Harry was playing CS:GO and browsing. However, the frequent switching between these apps indicates a need for focus and potential distraction. Therefore, it is recommended to provide a nudge to help Harry maintain focus.
-45
-needs_nudge
-2025-07-17 03:56:05
----
-3
-🎯 Time for a gentle nudge. Currently: Playing game (Counter-Strike) and browsing. The user has been active for the past 5 minutes, but their activity pattern shows frequent context switching between different applications. The dominant apps used in this timeframe are app.exe (Counter-Strike), code.exe, brave.exe, and steamwebhelper.exe. This suggests that the user is not deeply focused on a single task, as there is no long session (>15min) in one app. The moderate level of distraction is indicated by the rapid switches between apps and the use of entertainment/games.
-45
-needs_nudge
-2025-07-17 03:56:16
----
-4
-🎯 Time for a gentle nudge. Currently: browsing and gaming. The user, Harry, has been active for the past 5 minutes with a total active time of 3.08 minutes. During this period, he has used three unique apps: brave.exe, qq.exe, and code.exe. This suggests moderate distraction as there have been two context switches within the 5-minute window. The dominant app in this timeframe is brave.exe, which is a web browser, indicating browsing behavior. Additionally, Harry has also spent some time on qq.exe, a communication app, and code.exe, an Integrated Development Environment (IDE). However, the short duration of time spent on code.exe suggests that he might not have been in a flow state. Therefore, it is recommended to nudge Harry towards focusing more.
-45
-needs_nudge
-2025-07-17 04:00:52
----
-4
-🎯 Time for a gentle nudge. Currently: context switching between code editing, web browsing, and an unidentified app. The user has shown a variable focus trend with frequent context switches (6 in the last 5 minutes) between different applications. The dominant apps used are Code.exe, brave.exe, windowsterminal.exe, and an unidentified app (app.exe). This rapid switching may indicate distractibility or task exploration. Additionally, the duration spent on each application is relatively short, suggesting that the user is not in a deep flow state. The user's current activity suggests a need for nudging to help focus their attention.
-45
-needs_nudge
-2025-07-17 04:02:42
----
-4
-🎯 Time for a gentle nudge. Currently: Context switching between apps and brief periods of coding. The user has shown a variable focus trend, with multiple rapid app switches (6 total) in the last 5 minutes. The dominant apps used are code.exe, brave.exe, app.exe, and windowsterminal.exe. However, the short duration of activity in each app suggests that the user is not fully immersed in a flow state. The increasing distraction trend can be observed by the number of context switches and the variety of apps used.
-45
-needs_nudge
-2025-07-17 04:02:50
----
-4
-🎯 Time for a gentle nudge. Currently: browsing and gaming. The user, Harry, has been active for the past 5 minutes with a total of 3.36 minutes spent actively using the computer. In this timeframe, there were 4 context switches between 4 unique apps: explorer.exe, app.exe, windowsterminal.exe, and potplayermini64.exe. The dominant app in this period was PotPlayerMini64.exe, which suggests gaming activity. However, the user also spent some time on brave.exe, indicating web browsing. This pattern of frequent context switching between entertainment (gaming) and casual web browsing indicates a moderate level of distraction. The focus trend is variable as there are no long sessions in one app, suggesting a flow state.
-45
-needs_nudge
-2025-07-17 04:16:45
----
-4
-🎯 Time for a gentle nudge. Currently: browsing and gaming. The user, Harry, has been active for the past 5 minutes with a total of 3.43 minutes spent actively using apps. In this short timeframe, there were 5 context switches between 4 unique apps: explorer.exe, app.exe, windowsterminal.exe, and potplayermini64.exe. The dominant app in the last 5 minutes was explorer.exe. PotPlayerMini64.exe, a media player, was also frequently used. These patterns suggest that Harry is engaging in a mix of browsing and gaming activities, which may indicate moderate distraction levels. However, due to the limited timeframe, it's difficult to definitively determine if Harry is maintaining focus or losing it.
-45
-needs_nudge
-2025-07-17 04:16:56
----
-4
-🎯 Time for a gentle nudge. Currently: gaming and web browsing. The user, Harry, has been active for the past 5 minutes with a total of 3.51 minutes, indicating some activity but not a long focus period (<15min). There have been 4 context switches between different apps, which may suggest distractibility or task exploration. The dominant apps used in the recent 5 minutes include app.exe, PotPlayerMini64.exe, explorer.exe, and windowsterminal.exe, with PotPlayerMini64.exe being the most frequent. While some time was spent on brave.exe, it doesn't necessarily indicate productive activity due to the context switching behavior. Therefore, Harry's current state is 'needs_nudge', and his focus trend is 'variable'.
-45
-needs_nudge
-2025-07-17 04:17:14
----
-4
-🎯 Time for a gentle nudge. Currently: browsing and gaming. The user, Harry, has been active for the past 5 minutes with a total of 3.27 minutes of active time. During this period, he has switched context 3 times between app.exe, potplayermini64.exe, and windowsterminal.exe. While PotPlayerMini64.exe is an entertainment application, it's unclear if Harry was watching a video or just listening to music. The brief periods of time spent on each app suggest a lack of focus and potential distraction. In the last 30 minutes, the user has also used qbittorrent.exe, which is a torrent client, indicating some form of entertainment or downloading content. Overall, it appears that Harry needs a nudge to help maintain focus.
-45
-needs_nudge
-2025-07-17 04:17:53
----
-4
-🎯 Time for a gentle nudge. Currently: browsing and gaming. The user, Harry, has shown moderate context switching behavior between PotPlayerMini64.exe (a game), brave.exe (web browsing), app.exe, and WindowsTerminal.exe. The focus duration is not long enough to suggest a flow state (>15min). Additionally, the user spent more time on entertainment/games compared to productivity indicators such as IDEs or documents. This suggests that Harry needs a nudge to refocus on productive tasks.
-45
-needs_nudge
-2025-07-17 04:18:04
----
-4
-🎯 Time for a gentle nudge. Currently: Gaming and context switching. The user has been active for the past 5 minutes with a total of 2.66 minutes spent actively using apps, indicating a variable focus trend. There were 10 context switches in this timeframe, which may suggest distractibility or task exploration. The dominant apps used include gaming (app.exe), social media (Weixin.exe), and coding (Code.exe). This pattern suggests the user needs a nudge to refocus on a task.
-45
-needs_nudge
-2025-07-17 04:23:15
----
-16
-📊 Activity detected: Watching YouTube videos and communicating on Discord. The user has been actively using communication apps (Discord) for a significant portion of their time, interspersed with brief periods of watching YouTube videos. This indicates a focus on both communication and entertainment, which can be considered as maintaining focus but also shows moderate distractions. The user's activity pattern suggests they are engaged in multiple tasks, hence the high confidence.
-82
-[flow, working]
-2025-07-17 16:21:27
----
-16
-📊 Activity detected: Coding and terminal usage. The user has been actively coding and using the terminal for a significant portion of their time, with only occasional brief interruptions for communication or file exploration. This indicates a focus on productive tasks.
-82
-[flow, working]
-2025-07-17 16:33:18
----
-16
-📊 Activity detected: Coding and terminal usage. You have been actively coding and using the terminal for a significant amount of time, indicating focus. The context switch to Discord was minimal and brief, suggesting you were multitasking but still maintaining your focus.
-82
-[flow, working]
-2025-07-17 16:55:47
 ---
 17
-📊 Activity detected: Coding in Visual Studio Code. The user has been actively coding for a significant amount of time (8.19 minutes out of the last 30) and has only switched apps 6 times during this period, indicating focus and productivity. The rapid switches observed earlier in the timeline (5 switches within 5 minutes) might suggest some distraction, but the overall trend is low.
-60
-[flow]
-2025-07-17 17:01:09
----
-17
-📊 Activity detected: Using Windows PowerShell and WeChat. The user has been actively using productivity tools (Windows PowerShell) for a significant amount of time (13.65 minutes in the last 30 minutes), indicating focus. Additionally, they have also been using WeChat, but the usage is intermittent and brief, suggesting that it may not be a major distraction. The user has only switched between apps 5 times in the last 30 minutes, which is within the acceptable range.
-60
-[flow]
-2025-07-17 17:30:16
----
-17
-📊 Activity detected: Using command line tools (Windows PowerShell) and WeChat. The user has been actively using productivity apps for a significant amount of time, with only occasional brief interruptions by the communication app WeChat. The rapid switches between WindowsTerminal.exe and explorer.exe can be considered normal context switching when working with files in a project. Therefore, it is reasonable to assume that the user is maintaining focus on their work.
-60
-[flow]
-2025-07-17 17:30:16
----
-17
-📊 Activity detected: Coding and using terminal. The user has been actively coding in Visual Studio Code for a significant amount of time, with multiple switches to the terminal. This indicates focus on the task at hand. The low number of distractions also supports this conclusion.
-60
-[flow, working]
-2025-07-17 17:35:16
----
-17
-📊 Activity detected: Coding and using terminal. The user has been actively engaged in coding and working with terminals for a significant amount of time, indicating focus. The context switches are minimal, suggesting that the user is maintaining their focus well. Additionally, there are no long sessions or rapid switches that could indicate distractions.
-60
-[flow, working]
-2025-07-17 17:35:16
----
-17
-📊 Activity detected: Coding and using terminal. You have been actively coding for a significant amount of time (11.4 minutes) in the last half hour, with multiple switches between your code editor and terminal. This indicates that you are maintaining focus on your task.
-60
-[flow, working]
-2025-07-17 17:35:20
----
-17
-📊 Activity detected: [. You have been actively working on your code editor (Visual Studio Code) for a significant amount of time, with some brief interruptions to use the Windows PowerShell. This indicates that you are maintaining focus on your coding task. However, there were moderate distractions as evidenced by the context switches and short sessions in WeChat. Keep up the good work and try to minimize those distractions for optimal productivity.
-60
-[
-2025-07-17 17:35:52
----
-19
-📊 Activity detected: [. You have been actively coding and watching a specific video on YouTube for an extended period. This indicates that you are maintaining focus, with minimal distractions. Keep up the good work!
-75
-[
-2025-07-17 19:06:15
----
-19
-📊 Activity detected: [. You have been actively coding in Visual Studio Code for a significant amount of time (6.1 minutes), which indicates you are in the flow state. Additionally, you've also spent a considerable amount of time (7.08 minutes) watching YouTube videos, but these activities seem to be intermittent and not causing major distractions. Keep up the good work!
-75
-[
-2025-07-17 19:06:26
----
-19
-📊 Activity detected: [. The user has been actively engaged in coding for a significant amount of time (10.67 minutes), with only one brief interruption to watch a YouTube video. This indicates a strong focus on the task at hand, which is coding in Rust.
-75
-[
-2025-07-17 19:07:38
----
-19
-📊 Activity detected: Coding and using the ADHD Focus App. The user has been actively coding (flow) for a significant amount of time (long session), and also interacted with the ADHD Focus App, indicating focus and productivity. The distraction level is low as there are no entertainment or rapid switches in the recent activity.
-75
-[flow, working]
-2025-07-17 19:16:41
----
-19
-📊 Activity detected: Coding and watching YouTube videos. You've been actively coding for a significant amount of time (12.78 minutes) in Visual Studio Code, with a few brief interruptions to watch YouTube videos. This indicates that you are maintaining your focus on your primary task. The context switches were minimal and the distractions appear to be low.
-75
-[
-2025-07-17 19:29:02
----
-19
-📊 Activity detected: Coding and working on Companion Cube project. The user has been actively coding for a considerable amount of time (12.95 minutes in the last 30 minutes) and switching between two main tasks, which indicates maintaining focus. The distraction level is low as there are only two brief visits to entertainment apps. The confidence is high due to the consistent activity in the code editor.
-75
-[
-2025-07-17 19:29:28
----
-20
-📊 Activity detected: Coding. Harry has been actively coding in Visual Studio Code for a significant amount of time (29.37min), which indicates he is in a flow state. The number of context switches is low, suggesting minimal distractions.
-75
-[flow]
-2025-07-17 20:23:13
----
-20
-📊 Activity detected: Coding in Visual Studio Code. Harry has been actively coding for a long period (29.37 minutes) in Visual Studio Code, indicating focus and productivity. The context switches are minimal, suggesting a single task or project is being worked on.
-75
-[
-2025-07-17 20:23:50
----
-20
-📊 Activity detected: [. You have been actively coding for a long session (29.37 minutes) in Visual Studio Code, indicating focus and productivity. The context switches are minimal, suggesting you're maintaining your focus.
-75
-[
-2025-07-17 20:25:56
----
-20
-📊 Activity detected: [. You've been actively coding for about half an hour, with only a brief interruption to use QQ and Weixin. This indicates that you are maintaining your focus on the task at hand. The lack of rapid switches also suggests that distractions have been minimal.
-75
-[
-2025-07-17 20:26:14
----
-20
-📊 Activity detected: Coding. Harry has been actively coding for over 29 minutes in Visual Studio Code. The context switches are minimal, indicating a focused work session. The distraction level is low as Harry has only used communication apps briefly.
-75
-[flow]
-2025-07-17 20:26:18
----
-20
-📊 Activity detected: Coding in Visual Studio Code. Harry has been actively coding for almost an hour, with minimal context switches and brief interruptions. This indicates a sustained focus on the task at hand.
-75
-[
-2025-07-17 20:26:21
----
-20
-📊 Activity detected: [. [
-75
-[
-2025-07-17 20:26:30
----
-20
-📊 Activity detected: Coding (29.37min in Visual Studio Code). Harry has been actively coding for a significant period of time, with minimal context switches and distractions. This suggests that Harry is maintaining focus on his task.
-75
-[flow]
-2025-07-17 20:26:55
----
-20
-📊 Activity detected: [. You've been actively engaged in one task for a significant amount of time, focusing on researching the history of AMD GPUs. This indicates maintaining focus and a low level of distraction.
-75
-[
-2025-07-17 20:46:08
----
-20
-📊 Activity detected: Coding and using PowerShell. You have been actively coding in Visual Studio Code and using PowerShell for a considerable amount of time, which indicates focus. The context switches are minimal, suggesting you're maintaining your focus well.
-75
-[flow, working]
-2025-07-17 20:47:32
----
-20
-📊 Activity detected: Coding and researching GPU performance. You've been actively working in your code editor for a significant amount of time, with brief interruptions for research on GPU performance. This indicates that you are maintaining focus on your task.
-75
-[flow, working]
-2025-07-17 20:48:39
----
-20
-📊 Activity detected: Coding and working on daily summary. You have been actively coding and working on your daily summary for a considerable amount of time, with only brief interruptions for research (AMD Stagnation video) and checking other apps. This indicates that you are maintaining focus on your task.
-75
-[flow]
-2025-07-17 20:48:55
----
-20
-📊 Activity detected: Coding and writing daily summary. Harry has been actively coding and writing a daily summary for around 10 minutes, with minimal distractions. The focus on the task is evident as he's made several switches between his code editor and terminal but ultimately stayed engaged in the task.
-75
-[flow]
-2025-07-17 20:49:57
----
-20
-📊 Activity detected: [. You have been actively working on your tasks for a significant amount of time, switching between the Companion Cube and Notebook app. This indicates that you are maintaining focus on your work. The number of context switches is low, suggesting minimal distractions.
-75
-[
-2025-07-17 20:53:47
----
-20
-📊 Activity detected: Coding and working on a project in Visual Studio Code. You were actively engaged in coding for most of the observed period, with multiple short sessions in Visual Studio Code. Additionally, you had a longer session (1.62min) in VS Code, which indicates focus on your coding task.
-75
-[
-2025-07-17 20:58:33
----
-20
-📊 Activity detected: Coding and Terminal usage. You have been actively coding for a significant amount of time (1.62min in Visual Studio Code) and using the terminal (0.3min in Windows PowerShell). This indicates that you are maintaining focus on your work.
-75
-[flow, working]
-2025-07-17 20:59:03
----
-21
-📊 Activity detected: Coding and learning about AMD GPUs. Harry has been actively coding in Visual Studio Code for a significant amount of time (0.64min), switching to the terminal and YouTube only briefly to learn more about AMD GPUs. This indicates a focus on his work.
-75
-[flow, working]
-2025-07-17 21:05:01
----
-21
-📊 Activity detected: Coding and terminal usage. Harry has been actively using his code editor (Visual Studio Code) and terminal for a significant amount of time, indicating focus on his coding tasks. The number of context switches is relatively low, suggesting minimal distractions.
-75
-[flow, working]
-2025-07-17 21:06:15
----
-21
-📊 Activity detected: Coding and Terminal work. You have been actively engaged in coding and terminal work for the majority of your recent activity, with a focus on Visual Studio Code and PowerShell. Your context switches are minimal, indicating that you're maintaining your focus well.
-75
-[flow, working]
-2025-07-17 21:06:26
----
-21
-📊 Activity detected: Coding and using the terminal. Harry has been actively coding for a significant amount of time (5.49min) in Visual Studio Code, with a few brief interruptions to browse the web on Brave. The context switches were minimal, indicating that Harry is maintaining focus on his tasks.
-75
-[flow, working]
-2025-07-17 21:21:35
----
-21
-📊 Activity detected: Coding and using communication apps. Harry has been actively coding for a significant amount of time (5.49min) in Visual Studio Code, which indicates focus on his task. Additionally, he has also used communication apps briefly, suggesting that he is working collaboratively or seeking help when needed. The number of context switches is low, indicating a focused workflow.
-75
-[flow, working]
-2025-07-17 21:22:13
----
-21
-📊 Activity detected: Coding and using the terminal. Harry has been actively coding for a significant amount of time (5.49min) in Visual Studio Code, with brief interruptions for entertainment (0.73min - 0.81min). The context switches are minimal, indicating a focused state. This suggests Harry is maintaining focus and making progress on his coding tasks.
-75
-[flow, working]
-2025-07-17 21:22:21
----
-21
-📊 Activity detected: Coding and terminal usage. Harry has been actively coding and using the terminal for a significant amount of time, indicating focus. The context switch to the web browser was brief and infrequent, suggesting minimal distraction. Overall, Harry is maintaining focus on his tasks.
-75
-[flow, working]
-2025-07-17 21:27:03
----
-21
-📊 Activity detected: Coding and working in Visual Studio Code. You have been actively coding for a significant amount of time (17.1 minutes over the past 30 minutes) with minimal distractions, demonstrating focus and productivity. The repetitive switching between coding and communication apps might indicate multitasking, but it's not excessive enough to affect your flow state.
-75
-[
-2025-07-17 21:31:41
----
-21
-📊 Activity detected: Coding and working on projects in Visual Studio Code. You have been actively coding for a significant amount of time, with minimal distractions. Your focus seems to be maintained as you've been engaged in your work for over 14 minutes.
-75
-[
-2025-07-17 21:38:24
----
-21
-Late evening session from 21:08. Night owl productivity pattern detected. Ensure adequate rest for next day's cognitive performance.
-75
-working
-2025-07-17 21:38:48
----
-21
-📊 Activity detected: Coding and working in Visual Studio Code. You have been actively coding for a significant amount of time (14.31 minutes) in the past 30 minutes, with minimal distractions or context switches. Your focus has been maintained throughout this period.
-75
-[
-2025-07-17 21:39:06
----
-21
-Late evening session from 21:10. Night owl productivity pattern detected. Ensure adequate rest for next day's cognitive performance.
-75
-working
-2025-07-17 21:40:01
----
-21
-📊 Activity detected: Coding in Visual Studio Code. Harry has been actively coding for over 4 minutes without significant distractions, indicating a focus on the task. The repeated switches to the Companion Cube app might suggest a brief moment of relaxation or procrastination, but overall, Harry seems to be maintaining focus and making progress.
-75
-[flow]
-2025-07-17 21:40:38
----
-21
-📊 Activity detected: Coding and Terminal usage. Harry has been actively using his code editor (Visual Studio Code) and terminal for a considerable amount of time, indicating focus on a coding task. The context switches are minimal, suggesting a focused workflow.
-75
-[flow, working]
-2025-07-17 21:52:01
----
-22
-📊 Activity detected: Coding and using PowerShell. Harry has been actively coding for over 10 minutes, with a brief interruption to watch a YouTube video. However, he quickly returned to his coding task, indicating focus and productivity.
-65
-[
-2025-07-17 22:05:45
----
-22
-📊 Activity detected: [. You have been actively working on a code editor or terminal for the majority of your recent activity, with a total time spent of 2.41 minutes in the last 5 minutes and 7.55 minutes in the last 30 minutes. This indicates that you are maintaining focus and making progress.
-65
-[
-2025-07-17 22:08:01
----
-22
-📊 Activity detected: Working on Companion Cube and using Windows PowerShell. You have been actively working for a significant amount of time in your code editor (Companion Cube) and also used the terminal (Windows PowerShell). This indicates that you are in a flow state. The low distraction trend suggests that you have been able to maintain focus on your tasks.
-65
-[flow, working]
-2025-07-17 22:08:16
----
-22
-📊 Activity detected: Coding and working on Companion Cube. Harry has been actively coding and working on the Companion Cube application for a significant amount of time, with only brief interruptions. This indicates that Harry is maintaining focus on his work.
-65
-[
-2025-07-17 22:09:43
----
-22
-📊 Activity detected: Coding and terminal usage. Harry has been actively using code editors (Visual Studio Code) and terminals (PowerShell) for a significant amount of time, indicating focus on his coding tasks. The context switches are minimal, suggesting he is maintaining his focus well.
-65
-[
-2025-07-17 22:11:07
----
-22
-📊 Activity detected: [. Harry has been actively coding for a significant amount of time (14:08 - 14:11), with only minor interruptions, indicating that he is maintaining focus on his task. The distraction level is low as there are no entertainment or game activities observed during this period.
-65
-[
-2025-07-17 22:11:58
----
-22
-📊 Activity detected: Coding and communication. You have been actively coding (Code.exe) for a significant amount of time (14:13 - 14:14), with brief interruptions for communication apps (QQ.exe). This indicates focus on your tasks. The low number of distractions and rapid switches suggest that you are maintaining your focus.
-65
-[
-2025-07-17 22:16:36
----
-22
-Currently working on [Coding]. [Harry has been actively coding for a significant amount of time (1.28min) in Visual Studio Code, with minimal distractions and only one context switch during this period.]
-65
-[flow]
-2025-07-17 22:22:10
----
-22
-Currently working on [Coding and watching related YouTube video]. [The user has been actively coding for a while, with brief interruptions to watch a relevant YouTube video. The number of app switches is low, indicating focus.]
-65
-[flow]
-2025-07-17 22:22:39
----
-22
-🔥 Flow state detected! You're deeply focused on Coding in Visual Studio Code. The user has been actively coding for a significant amount of time (14:22 - 14:24) and has also shown focus by maintaining the same activity for a while. The number of context switches is low, indicating minimal distractions.
-90
-flow
-2025-07-17 22:25:31
----
-22
-🔥 Flow state detected! You're deeply focused on Coding in Visual Studio Code. Long session (15+ min) in the code editor, with minimal context switches.
-90
-flow
-2025-07-17 22:25:36
----
-22
-Currently working on [Browsing YouTube, Gaming (cs2.exe) and Coding (Code.exe)]. [Harry has been active for the past 30 minutes with a total of 4.1 minutes of active time and 16 app switches. The rapid switches indicate a potential distraction trend. The primary activity includes browsing YouTube, playing cs2.exe game, and coding in Code.exe.]
-65
-[needs_nudge]
-2025-07-17 22:25:41
----
-22
-🔥 Flow state detected! You're deeply focused on coding in Visual Studio Code. The user has been actively coding for a long period of time (14:22 - 14:25) with minimal distractions, indicating focus and productivity.
-90
-flow
-2025-07-17 22:25:55
----
-22
-🔥 Flow state detected! You're deeply focused on Using Windows PowerShell for coding or system tasks. Harry has been actively using the command line interface (Windows PowerShell) for a total of 2.85 minutes in the last 5 minutes and 3.4 minutes in the last 30 minutes, which indicates focus on a task. The context switches are minimal, suggesting a consistent focus.
-90
-flow
-2025-07-17 22:29:10
----
-22
-🔥 Flow state detected! You're deeply focused on Coding and using Companion Cube for development tasks. The user has been actively coding for a considerable amount of time (14:30 - 14:31) and has also been using the companion cube application, which is often associated with software development. The user's activity pattern indicates a focus on a task.
-90
-flow
-2025-07-17 22:31:54
----
-23
-🔥 Flow state detected! You're deeply focused on Researching space-saving furniture. You have been actively researching space-saving furniture for approximately 10 minutes across multiple tabs on Brave browser. This indicates a focus on one main topic, but the moderate distraction trend suggests occasional brief distractions.
-88
-flow
-2025-07-17 23:06:59
----
-23
-🔥 Flow state detected! You're deeply focused on Researching space-saving furniture ideas. You have been actively researching space-saving furniture for over 10 minutes, with minimal switches between applications.
-90
-flow
-2025-07-17 23:07:08
----
-23
-Currently working on Coding in Visual Studio Code. You have been actively working on your code for a considerable amount of time, with minimal distractions.
-75
-flow|working
-2025-07-17 23:24:51
----
-23
-🔥 Flow state detected! You're deeply focused on Studying Economics on Khan Academy YouTube videos. You have been actively engaged in the same task for an extended period, with minimal distractions and only a few app switches. This indicates maintaining focus.
-90
-flow
-2025-07-17 23:49:33
----
-23
-🔥 Flow state detected! You're deeply focused on Studying Economics on Khan Academy YouTube videos. You have been actively engaged in studying for your upcoming econ test by watching Khan Academy videos. However, there were multiple app switches which could indicate some distractions. The moderate level of distraction is due to the number of app switches and the variety of apps used.
-88
-flow
-2025-07-17 23:50:27
----
-23
-🔥 Flow state detected! You're deeply focused on Studying Economics on Khan Academy YouTube videos. You have been actively engaged in your work for a significant amount of time, but there are multiple app switches indicating potential distractions. However, the context suggests you're studying for an upcoming test.
-88
-flow
-2025-07-17 23:50:40
----
-23
-🔥 Flow state detected! You're deeply focused on Studying Economics on Khan Academy YouTube videos. You have been actively engaged in studying for an upcoming econ test, as indicated by the duration of your activity with Khan Academy videos. However, there were multiple app switches, which suggests some potential distractions.
-88
-flow
-2025-07-17 23:50:49
----
-23
-🔥 Flow state detected! You're deeply focused on Writing and coding in Notepad++ and Windows PowerShell. The user has been actively using multiple apps, including a code editor (Notepad++) and command line (Windows PowerShell), for an extended period of time. However, frequent switches between these apps indicate some level of distraction.
-88
-flow
-2025-07-17 23:50:54
----
-0
-🔥 Flow state detected! You're deeply focused on Studying (Khan Academy YouTube videos for econ test). You have been actively engaged in your study work for a significant amount of time, with only minor distractions. The number of switches between applications is within the normal range and you have been primarily using Code.exe and Spotify.exe.
-85
-flow
-2025-07-18 00:21:34
----
-0
-🔥 Flow state detected! You're deeply focused on Studying Economics on Khan Academy YouTube videos. You have been actively engaged in the same task for an extended period, with minimal app switches (4 switches in 30 minutes). The majority of your activity has been focused around studying, as indicated by the Khan Academy YouTube videos.
-85
-flow
-2025-07-18 00:22:59
----
-0
-Currently working on Studying Economics on Khan Academy YouTube videos. You have been actively engaged with the same task (Khan Academy videos) for a significant amount of time, and there are only a few app switches. This suggests maintaining focus.
-70
-flow|working
-2025-07-18 00:23:05
----
-0
-Currently working on Studying Economics on Khan Academy YouTube videos. You have been actively engaged in the same task for an extended period, and there are minimal distractions observed. The high confidence is based on the consistent focus on a single task.
-70
-flow|working
-2025-07-18 00:23:19
----
-0
-Currently working on Coding and studying economics on Khan Academy videos. You have been actively coding for a significant amount of time, with only minimal distractions. However, the frequent switching between apps indicates that you may benefit from focusing on one task at a time to maintain your flow state.
-68
-flow|working
-2025-07-18 00:27:22
----
-0
-🔥 Flow state detected! You're deeply focused on Coding and studying economics through Khan Academy videos. You have been actively coding for a significant amount of time, with only minor distractions. The focus on coding and studying economics indicates that you are in a flow state.
-85
-flow
-2025-07-18 00:28:07
----
-0
-Currently working on Studying Economics on Khan Academy YouTube videos. You have been actively engaged for a significant amount of time in the same task, which suggests focus and productivity. The number of switches is low, indicating minimal distractions.
-70
-flow|working
-2025-07-18 00:30:05
----
-0
-Currently working on Woodworking. The user has been actively engaged in the same task (woodworking) for a significant period of time, with minimal distractions and only a few app switches. This indicates maintaining focus.
-70
-flow|working
-2025-07-18 00:30:20
----
-0
-Currently working on Coding and playing music. The user has been actively coding for a considerable amount of time, with brief interruptions to listen to music. This indicates focus on the primary task.
-70
-flow|working
-2025-07-18 00:30:32
----
-0
-Currently working on Coding and using Companion Cube app intermittently. The user has been actively coding for a significant amount of time (6.24 minutes), with occasional breaks to use the Companion Cube app. This indicates focus on the primary task.
-70
-flow|working
-2025-07-18 00:30:47
----
-0
-Based on the lack of recent activity data, it is difficult to determine if the user is focused on studying for 'general studying'.
+The recent activity shows a mix of productivity (RockboxUtility.exe, explorer.exe) and relaxation (Weixin.exe, Discord.exe, YouTube). The focus score is moderate (40), indicating a need for better time management.
 50
-unknown
-2025-07-18 00:35:03
----
-0
-Currently working on Listening to music and reading lyrics (HALCALI - Otsukare Summer). The user has been actively engaged with the same task for a significant period of time, focusing on listening to a song and reading its lyrics. This activity can be considered as a form of relaxation or self-expression which may help maintain focus.
-70
-flow|working
-2025-07-18 00:35:22
----
-0
-Based on the lack of recent activity data, it is difficult to determine if the user is focused on studying for 'general studying'.
-50
-unknown
-2025-07-18 00:44:03
----
-0
-🔥 Flow state detected! You're deeply focused on Watching video on PotPlayer. The user has been actively engaged in a single task for an extended period of time, with minimal app switching and distractions.
+needs_nudge
+Mode: chill
+21
+Currently working on Using Companion Cube application and Discord for friend group communication. The user has been actively using the Companion Cube application and Discord for a significant amount of time, indicating focus on these tasks. The number of switches is moderate, suggesting some distractions but overall maintaining focus.
 85
-flow
-2025-07-18 00:44:14
+flow,working
+2025-07-23 21:56:15
 ---
+22
+Based on the provided data, there is no recent activity to analyze. However, it's important to remember that excessive entertainment can sometimes lead to productivity loss if not managed properly.
 0
-🔥 Flow state detected! You're deeply focused on Watching video on PotPlayer and communicating on Discord. The user has been actively engaged in a video for over 3 minutes on PotPlayer, but there have also been multiple short interactions on Discord. This suggests a moderate level of distraction.
-83
-flow
-2025-07-18 00:44:27
+needs_nudge
+2025-07-23 22:57:23
 ---
-0
-🔥 Flow state detected! You're deeply focused on Watching video and communicating with @zaredo on Discord. You have been actively engaged in a task for an extended period, switching between watching a video and communicating. This indicates maintaining focus, however, the moderate distraction trend suggests that you may have been interrupted or divided your attention.
-85
+22
+🔥 Flow state detected! You're deeply focused on Currently engaged in a Code/IDE. No context switches detected and the last recorded status was 'Active' with no activity detected since then. The rules indicate that 'Code/IDE' is associated with the 'flow' state.
+90
 flow
-2025-07-18 00:44:37
+2025-07-23 22:57:51
 ---
-0
-🔥 Flow state detected! You're deeply focused on Watching video and communicating with @zaredo on Discord. The user has been actively engaged in a video for about 7.5 minutes, with intermittent communication breaks, which indicates moderately distracted state but still maintaining focus on the primary activity.
-85
-flow
-2025-07-18 00:44:47
+22
+Currently working on Currently engaged in focused work or coding. No context switches detected, indicating a sustained focus on one task. The time spent active is also within the expected range for maintaining focus.
+75
+flow,working
+2025-07-23 22:58:45
 ---
-0
-🔥 Flow state detected! You're deeply focused on Watching video and communicating with @zaredo on Discord. The user has been actively engaged in a video for around 4 minutes, but also spent some time communicating on Discord. This indicates a moderate level of distraction.
-83
-flow
-2025-07-18 00:44:54
----
-0
-🔥 Flow state detected! You're deeply focused on Discord interactions and WeChat usage. The user has been actively using Discord and WeChat for a significant amount of time, indicating communication and social interaction. This could potentially be a distraction from the primary task, but it is not clear from the context what that task might be.
-83
-flow
-2025-07-18 00:49:38
----
-1
+23
 No recent activity data available for analysis.
 0
 needs_nudge
-2025-07-18 01:02:29
+2025-07-23 23:00:02
 ---
-1
-🔥 Flow state detected! You're deeply focused on Coding/IDE (msedgewebview2.exe). Multiple switches between app.exe and msedgewebview2.exe indicate task switching, which can be a sign of moderate distraction. However, the duration of time spent on each application suggests a focus on coding tasks.
-83
+23
+🔥 Flow state detected! Currently engaged in coding or IDE work. No context switches detected, indicating a sustained focus on a task. The lack of distractions also supports this conclusion.
+90
 flow
-2025-07-18 01:02:44
+2025-07-23 23:00:11
 ---
-1
-Currently working on Coding and Companion Cube app usage. The user has been actively engaged in coding for a considerable amount of time, with frequent but brief switches to the Companion Cube app. This indicates focus on two tasks, which is common in individuals with ADHD.
+23
+Currently engaged in focused work or coding. No context switches detected, indicating a sustained focus on the task at hand. The lack of distractions also supports this conclusion.
+75
+flow,working
+2025-07-23 23:19:39
+---
+23
+The recent activity data shows a mix of productivity (Visual Studio Code, Windows PowerShell, GitHub) and social media interaction (WeChat, QQ). However, there are multiple instances of the 'Companion Cube' application, which is typically associated with gaming. Additionally, there are several instances of YouTube videos being watched through the Brave browser. These activities might be getting out of hand if they are consuming significant amounts of time that could be dedicated to other tasks.
+50
+needs_nudge
+2025-07-23 23:26:30
+---
+23
+Using Weixin for extended periods. The user has been actively using the same application, Weixin, for a significant amount of time (0.63min, 0.12min, 0.7min, 0.45min, 0.1min, 0.08min). This indicates focus on that particular activity.
+75
+flow|working
+2025-07-23 23:26:56
+---
+0
+Recent activity shows a focus on researching and browsing for large screen TVs, particularly LG models. This could indicate a potential interest or planning for a purchase. However, there is no clear evidence of excessive gaming or entertainment in chill mode.
+70
+needs_nudge
+2025-07-24 00:04:51
+---
+0
+Researching and comparing LG TVs. The user has been actively researching different LG TV models on multiple shopping websites for a significant amount of time.
 70
 flow|working
-2025-07-18 01:04:36
+2025-07-24 00:05:17
 ---
-1
-🔥 Flow state detected! You're deeply focused on Coding/IDE work. The user has been actively engaged in coding for a significant period of time, with minimal distractions and only a few app switches. This indicates focus and productivity.
-85
-flow
-2025-07-18 01:19:18
+0
+The recent activity shows a focus on researching and potentially purchasing electronic devices such as TVs and gaming equipment. There is no clear indication of excessive gaming or entertainment in 'chill mode'. However, it's important to be mindful of the time spent on these activities.
+70
+needs_nudge
+2025-07-24 00:07:25
 ---
-1
-Based on the lack of recent activity data, it's difficult to determine the current focus level. However, let's assume a neutral state for now.
+0
+Coding in Rust (lib.rs) and using Visual Studio Code. The user has been actively coding for a significant amount of time, with only minor distractions observed.
+70
+flow|working
+2025-07-24 00:07:42
+---
+0
+The recent activity shows a mix of work (WindowsPowerShell, Visual Studio Code, Discord), leisure (Spotify, Brave browser), and gaming (Companion Cube). The focus score is relatively high due to the coding sessions and communication on Discord. However, repeated gaming sessions might indicate a need for balance. State: needs_nudge
 50
-neutral
-2025-07-18 01:43:10
+working
+2025-07-24 00:24:51
+---
+0
+Coding and Discord interaction. The user has been actively coding for a significant amount of time (13.59 minutes) and also interacted on Discord for a relatively short period of time (0.67 minutes). The focus seems to be maintained as there are only 4 switches during this period.
+70
+flow|working
+2025-07-24 00:25:35
+---
+0
+Recent activity shows a focus on coding and communication (Visual Studio Code, Discord, QQ). However, there is an occasional application named 'Companion Cube' which might be a game. The frequency of this application is not high enough to indicate excessive gaming or entertainment. Focus score: 70, state: flow
+50
+working
+2025-07-24 00:30:57
+---
+0
+coding in Visual Studio Code. The user has been actively coding for a significant amount of time (0.91min +) and has only switched apps twice within the last minute, indicating focus.
+70
+flow,working
+2025-07-24 00:31:23
+---
+0
+Coding in Visual Studio Code. The user has been actively coding for a significant amount of time, with only minor interruptions for brief communication breaks. The focus seems to be maintained.
+70
+flow|working
+2025-07-24 00:32:02
+---
+0
+Coding in Rust (lib.rs - cc) and using Companion Cube app. The user has been actively coding for a significant period of time, with multiple switches to the Companion Cube app, indicating a possible integration of work and relaxation. This pattern suggests focus and productivity.
+70
+flow|working
+2025-07-24 00:33:28
+---
+0
+Coding in Visual Studio Code. The user has been actively coding for a significant amount of time and has only switched to another app twice during the last 30 minutes.
+70
+flow|working
+2025-07-24 00:36:07
+---
+1
+Researching torrent sites. The user has been actively using a web browser to search for and visit various torrent sites, with multiple switches between Discord and the browser. This indicates a moderately distracted state, but the focus is being maintained on the research task.
+68
+flow,working
+2025-07-24 01:31:26
+---
+1
+Coding in Rust with Visual Studio Code. Multiple long sessions of coding in lib.rs using Visual Studio Code, with a brief switch to Windows Terminal for command-line tasks.
+70
+flow|working
+2025-07-24 01:37:27
+---
+1
+Coding in Rust (lib.rs) using Visual Studio Code. Multiple sessions of coding in lib.rs, with a total duration of 2.66 minutes.
+70
+flow|working
+2025-07-24 01:37:32
+---
+1
+Coding in Rust (lib.rs) using Visual Studio Code. Multiple instances of Code.exe and lib.rs were observed, indicating a focus on coding activity.
+70
+flow|working
+2025-07-24 01:37:40
+---
+1
+Coding and working with Rust (lib.rs) in Visual Studio Code. The majority of the time was spent on Code.exe, which is associated with coding activities. The specific file lib.rs was opened multiple times, indicating a focus on this task.
+70
+flow|working
+2025-07-24 01:38:37
+---
+1
+Coding in Rust (lib.rs) using Visual Studio Code. The user has been actively working on the same task for a significant period and has only switched between two related applications, indicating focus.
+70
+flow|working
+2025-07-24 01:38:42
+---
+1
+Coding in Visual Studio Code. The user has been actively using the Code.exe application for a significant amount of time, with multiple sessions and switches to other applications like WindowsTerminal.exe and app.exe, which are also related to coding. This suggests that the primary activity is coding.
+70
+flow|working
+2025-07-24 01:38:47
+---
+1
+Coding in Visual Studio Code. The user has been actively coding for a significant amount of time, with multiple consecutive sessions in the code editor. This indicates focus and productivity.
+70
+flow|working
+2025-07-24 01:38:58
+---
+1
+coding in Visual Studio Code. The user has been actively using the code editor for a significant amount of time and has made multiple switches between the code editor, terminal, and companion cube app. This suggests focused work on a coding project.
+70
+flow|working
+2025-07-24 01:39:04
+---
+1
+Coding in Visual Studio Code. The user has been actively coding for a significant amount of time, with minimal distractions and multiple switches between the code editor and terminal.
+70
+flow|working
+2025-07-24 01:39:09
+---
+1
+Coding in Visual Studio Code. The user has been actively coding for a significant amount of time, with minimal distractions and frequent switches between the code editor and terminal.
+70
+flow|working
+2025-07-24 01:39:34
+---
+1
+Coding in Companion Cube and Visual Studio Code. The user has been actively coding for a significant amount of time, switching between the Companion Cube app and Visual Studio Code. This indicates focus on a task related to coding.
+70
+flow|working
+2025-07-24 01:39:48
+---
+1
+Coding and working on Companion Cube app. The user has been actively coding in Visual Studio Code for the Companion Cube app, with multiple consecutive sessions. This indicates a focus on the task.
+70
+flow|working
+2025-07-24 01:40:08
+---
+1
+Coding in Companion Cube and Visual Studio Code. You have been actively coding for a significant amount of time in both the Companion Cube app and Visual Studio Code. This indicates focus on your project.
+70
+flow|working
+2025-07-24 01:40:23
 ---

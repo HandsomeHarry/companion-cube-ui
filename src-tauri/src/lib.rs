@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{Duration, Timelike, DateTime, Utc, SubsecRound};
 use dirs;
 use std::sync::OnceLock;
+use futures;
 
 static AW_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static OLLAMA_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -185,9 +186,8 @@ impl ActivityWatchClient {
     pub async fn get_window_events(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Vec<serde_json::Value>, String> {
         let buckets = self.get_buckets().await?;
         
-        // Find window bucket
-        let window_bucket = find_bucket_by_type(&buckets, "currentwindow")
-            .or_else(|| find_bucket_by_prefix(&buckets, "aw-watcher-window"));
+        // Find window bucket - ONLY use aw-watcher-window
+        let window_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-window");
         
         if let Some(bucket_id) = window_bucket {
             let events = self.get_raw_events(&bucket_id, start_time, end_time).await?;
@@ -206,9 +206,8 @@ impl ActivityWatchClient {
         
         let buckets = self.get_buckets().await?;
         
-        // Find window bucket - ActivityWatch typically uses "currentwindow" type
-        let window_bucket = find_bucket_by_type(&buckets, "currentwindow")
-            .or_else(|| find_bucket_by_prefix(&buckets, "aw-watcher-window"));
+        // Find window bucket - ONLY use aw-watcher-window
+        let window_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-window");
         
         // Removed excessive debug output
         
@@ -231,9 +230,8 @@ impl ActivityWatchClient {
         
         let buckets = self.get_buckets().await?;
         
-        // Find AFK bucket - ActivityWatch typically uses "afkstatus" type  
-        let afk_bucket = find_bucket_by_type(&buckets, "afkstatus")
-            .or_else(|| find_bucket_by_prefix(&buckets, "aw-watcher-afk"));
+        // Find AFK bucket - ONLY use aw-watcher-afk
+        let afk_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-afk");
         
         // Removed excessive debug output
         
@@ -270,19 +268,15 @@ impl ActivityWatchClient {
         let bucket_id = match event_type {
             "window" => {
                 eprintln!("Looking for window bucket...");
-                let by_type = find_bucket_by_type(&buckets, "currentwindow");
-                let by_prefix = find_bucket_by_prefix(&buckets, "aw-watcher-window");
-                eprintln!("  by type 'currentwindow': {:?}", by_type);
-                eprintln!("  by prefix 'aw-watcher-window': {:?}", by_prefix);
-                by_type.or(by_prefix)
+                let bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-window");
+                eprintln!("  Found window bucket: {:?}", bucket);
+                bucket
             }
             "afk" => {
                 eprintln!("Looking for AFK bucket...");
-                let by_type = find_bucket_by_type(&buckets, "afkstatus");
-                let by_prefix = find_bucket_by_prefix(&buckets, "aw-watcher-afk");
-                eprintln!("  by type 'afkstatus': {:?}", by_type);
-                eprintln!("  by prefix 'aw-watcher-afk': {:?}", by_prefix);
-                by_type.or(by_prefix)
+                let bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-afk");
+                eprintln!("  Found AFK bucket: {:?}", bucket);
+                bucket
             }
             _ => None
         };
@@ -340,11 +334,9 @@ impl ActivityWatchClient {
         // OPTIMIZATION 1: Fetch buckets only once and cache them
         let buckets = self.get_buckets().await?;
         
-        // OPTIMIZATION 2: Find buckets once instead of searching repeatedly
-        let window_bucket = find_bucket_by_type(&buckets, "currentwindow")
-            .or_else(|| find_bucket_by_prefix(&buckets, "aw-watcher-window"));
-        let afk_bucket = find_bucket_by_type(&buckets, "afkstatus")
-            .or_else(|| find_bucket_by_prefix(&buckets, "aw-watcher-afk"));
+        // OPTIMIZATION 2: Find buckets once instead of searching repeatedly - ONLY use standard buckets
+        let window_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-window");
+        let afk_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-afk");
             
         eprintln!("Selected buckets - Window: {:?}, AFK: {:?}", window_bucket, afk_bucket);
         
@@ -427,20 +419,256 @@ impl ActivityWatchClient {
         Ok(events)
     }
 
+    /// Get window events filtered by non-AFK periods (optimized version)
+    pub async fn get_active_window_events(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Vec<serde_json::Value>, String> {
+        // Get buckets once and reuse
+        let buckets = self.get_buckets().await?;
+        
+        // Find both buckets using the cached bucket list
+        let window_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-window");
+        let afk_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-afk");
+        
+        // Get events only if buckets exist
+        let window_events = if let Some(bucket_id) = window_bucket {
+            self.get_raw_events(&bucket_id, start_time, end_time).await?
+        } else {
+            Vec::new()
+        };
+        
+        let afk_events = if let Some(bucket_id) = afk_bucket {
+            self.get_raw_events(&bucket_id, start_time, end_time).await?
+        } else {
+            Vec::new()
+        };
+        
+        // Build non-AFK time ranges from AFK events
+        let mut active_ranges: Vec<(DateTime<Utc>, DateTime<Utc>)> = Vec::new();
+        
+        // Process each AFK event - when status is "not-afk", that's an active period
+        for event in &afk_events {
+            if let (Some(timestamp_str), Some(data), Some(duration)) = (
+                event.get("timestamp").and_then(|v| v.as_str()),
+                event.get("data").and_then(|v| v.as_object()),
+                event.get("duration").and_then(|v| v.as_f64())
+            ) {
+                if let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp_str) {
+                    let timestamp = timestamp.with_timezone(&Utc);
+                    let event_end = timestamp + chrono::Duration::seconds(duration as i64);
+                    
+                    if let Some(status) = data.get("status").and_then(|v| v.as_str()) {
+                        if status == "not-afk" {
+                            // This entire event duration is an active period
+                            active_ranges.push((timestamp, event_end));
+                        }
+                        // If status is "afk", we skip this period entirely
+                    }
+                }
+            }
+        }
+        
+        
+        // Filter window events to only those within active ranges
+        let mut filtered_events = Vec::new();
+        
+        for window_event in &window_events {
+            if let (Some(timestamp_str), Some(duration)) = (
+                window_event.get("timestamp").and_then(|v| v.as_str()),
+                window_event.get("duration").and_then(|v| v.as_f64())
+            ) {
+                if let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp_str) {
+                    let timestamp = timestamp.with_timezone(&Utc);
+                    let window_end = timestamp + chrono::Duration::seconds(duration as i64);
+                    
+                    // Check if this window event overlaps with any active range
+                    for (range_start, range_end) in &active_ranges {
+                        // Check for any overlap between window event and active range
+                        if timestamp < *range_end && window_end > *range_start {
+                            // There is overlap, but we need to adjust the duration
+                            // to only count the time within the active range
+                            let overlap_start = timestamp.max(*range_start);
+                            let overlap_end = window_end.min(*range_end);
+                            let overlap_duration = (overlap_end - overlap_start).num_seconds() as f64;
+                            
+                            if overlap_duration > 0.0 {
+                                // Clone the event and adjust its duration
+                                let mut adjusted_event = window_event.clone();
+                                if let Some(duration_val) = adjusted_event.get_mut("duration") {
+                                    *duration_val = serde_json::Value::Number(
+                                        serde_json::Number::from_f64(overlap_duration).unwrap_or(serde_json::Number::from(0))
+                                    );
+                                }
+                                // Update timestamp if needed (if event started before active range)
+                                if overlap_start > timestamp {
+                                    if let Some(timestamp_val) = adjusted_event.get_mut("timestamp") {
+                                        *timestamp_val = serde_json::Value::String(overlap_start.to_rfc3339());
+                                    }
+                                }
+                                filtered_events.push(adjusted_event);
+                                break; // Move to next window event after finding overlap
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        
+        Ok(filtered_events)
+    }
+    
+
+    /// Get multi-timeframe data with AFK filtering (optimized)
+    pub async fn get_multi_timeframe_data_active(&self) -> Result<HashMap<String, HashMap<String, Vec<Event>>>, String> {
+        let mut data = HashMap::new();
+        let now = Utc::now();
+        
+        // Get buckets once and cache them
+        let buckets = self.get_buckets().await?;
+        let window_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-window");
+        let afk_bucket = find_bucket_by_exact_prefix(&buckets, "aw-watcher-afk");
+        
+        if window_bucket.is_none() {
+            return Err("No window bucket found".to_string());
+        }
+        
+        // Fetch all data once for the maximum timeframe
+        let one_hour_ago = now - chrono::Duration::hours(1);
+        
+        // Fetch both event types in parallel using futures
+        let window_bucket_id = window_bucket.unwrap();
+        let afk_bucket_id = afk_bucket.unwrap_or_default();
+        
+        let (all_window_events, all_afk_events) = futures::try_join!(
+            self.get_raw_events(&window_bucket_id, one_hour_ago, now),
+            async {
+                if afk_bucket_id.is_empty() {
+                    Ok(Vec::new())
+                } else {
+                    self.get_raw_events(&afk_bucket_id, one_hour_ago, now).await
+                }
+            }
+        )?;
+        
+        // Build active ranges once
+        let active_ranges = self.build_active_ranges(&all_afk_events);
+        
+        // Process all timeframes at once
+        let timeframes = [("5_minutes", 5), ("30_minutes", 30), ("1_hour", 60)];
+        
+        for (timeframe_name, minutes) in timeframes {
+            let start_time = now - chrono::Duration::minutes(minutes);
+            
+            // Filter events efficiently
+            let window_events = self.filter_events_by_active_ranges(
+                &all_window_events,
+                &active_ranges,
+                start_time,
+                now
+            );
+            
+            // Filter AFK events for this timeframe
+            let afk_events: Vec<Event> = all_afk_events.iter()
+                .filter_map(|event| {
+                    if let Some(timestamp_str) = event.get("timestamp").and_then(|v| v.as_str()) {
+                        if let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp_str) {
+                            let timestamp = timestamp.with_timezone(&Utc);
+                            if timestamp >= start_time && timestamp <= now {
+                                return self.parse_event(event.clone()).ok();
+                            }
+                        }
+                    }
+                    None
+                })
+                .collect();
+            
+            let mut timeframe_data = HashMap::new();
+            timeframe_data.insert("window".to_string(), window_events);
+            timeframe_data.insert("afk".to_string(), afk_events);
+            timeframe_data.insert("web".to_string(), Vec::new());
+            
+            data.insert(timeframe_name.to_string(), timeframe_data);
+        }
+        
+        Ok(data)
+    }
+    
+    /// Build active time ranges from AFK events
+    fn build_active_ranges(&self, afk_events: &[serde_json::Value]) -> Vec<(DateTime<Utc>, DateTime<Utc>)> {
+        let mut active_ranges = Vec::new();
+        
+        for event in afk_events {
+            if let (Some(timestamp_str), Some(data), Some(duration)) = (
+                event.get("timestamp").and_then(|v| v.as_str()),
+                event.get("data").and_then(|v| v.as_object()),
+                event.get("duration").and_then(|v| v.as_f64())
+            ) {
+                if let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp_str) {
+                    let timestamp = timestamp.with_timezone(&Utc);
+                    let event_end = timestamp + chrono::Duration::seconds(duration as i64);
+                    
+                    if let Some(status) = data.get("status").and_then(|v| v.as_str()) {
+                        if status == "not-afk" {
+                            active_ranges.push((timestamp, event_end));
+                        }
+                    }
+                }
+            }
+        }
+        
+        active_ranges
+    }
+    
+    /// Filter events by active ranges efficiently
+    fn filter_events_by_active_ranges(
+        &self,
+        events: &[serde_json::Value],
+        active_ranges: &[(DateTime<Utc>, DateTime<Utc>)],
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>
+    ) -> Vec<Event> {
+        let mut filtered_events = Vec::new();
+        
+        for event in events {
+            if let Some(timestamp_str) = event.get("timestamp").and_then(|v| v.as_str()) {
+                if let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp_str) {
+                    let timestamp = timestamp.with_timezone(&Utc);
+                    
+                    // Check time bounds first
+                    if timestamp < start_time || timestamp > end_time {
+                        continue;
+                    }
+                    
+                    // Check if within any active range
+                    let is_active = active_ranges.iter().any(|(range_start, range_end)| {
+                        timestamp >= *range_start && timestamp <= *range_end
+                    });
+                    
+                    if is_active {
+                        if let Ok(parsed_event) = self.parse_event(event.clone()) {
+                            filtered_events.push(parsed_event);
+                        }
+                    }
+                }
+            }
+        }
+        
+        filtered_events
+    }
+
     /// Get formatted activity data for AI analysis
     pub async fn get_activity_data(&self) -> Result<String, String> {
         let now = Utc::now();
         let start_time = now - chrono::Duration::hours(1);
         let end_time = now;
         
-        // Get recent window events
-        let window_events = self.get_window_events(start_time, end_time).await.unwrap_or_default();
+        // Get recent window events filtered by non-AFK periods
+        let window_events = self.get_active_window_events(start_time, end_time).await.unwrap_or_default();
         
         // Extract application names and titles for analysis with more detail
         let mut activity_summary = Vec::new();
         
         for event in window_events.iter().take(30) { // Increased limit for more context
-            if let Some(data) = event.as_object() {
+            if let Some(data) = event.get("data").and_then(|v| v.as_object()) {
                 if let Some(app_name) = data.get("app").and_then(|v| v.as_str()) {
                     let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("Unknown");
                     // Include more detailed activity information
@@ -960,7 +1188,7 @@ fn parse_ai_response(response: String) -> Result<(String, u32, String), String> 
         Err(_) => {
             // If parsing fails, extract what we can from the text
             let summary = if response.len() > 100 {
-                format!("{}...", &response[..100])
+                format!("{}...", response.chars().take(100).collect::<String>())
             } else {
                 response
             };
@@ -1212,14 +1440,10 @@ async fn generate_new_hourly_summary(now: chrono::DateTime<chrono::Local>, summa
     let aw_connected = aw_client.test_connection().await.connected;
     let ollama_available = test_ollama_connection().await;
     
-    eprintln!("Connection status - ActivityWatch: {}, Ollama: {}", aw_connected, ollama_available);
-    
     let (summary_text, focus_score, current_state) = if aw_connected && ollama_available {
         // We have both connections - generate real AI summary
-        eprintln!("Generating AI-powered summary...");
         match generate_ai_summary(&aw_client, now).await {
             Ok((ai_summary, ai_score, ai_state)) => {
-                eprintln!("AI summary generated successfully");
                 (ai_summary, ai_score, ai_state)
             },
             Err(e) => {
@@ -1229,7 +1453,6 @@ async fn generate_new_hourly_summary(now: chrono::DateTime<chrono::Local>, summa
         }
     } else {
         // Fallback to time-based summary
-        eprintln!("Using time-based fallback summary");
         generate_time_based_summary(now)
     };
     
@@ -1721,7 +1944,7 @@ impl EventProcessor {
             .unwrap_or(false);
         
         format!(
-            r#"Analyze ADHD productivity. Return ONLY valid JSON.
+            r#"Analyze ADHD productivity. Return ONLY valid JSON. No other text before or after JSON.
 
 CONTEXT: {}
 STATUS: {} | 5min: {}m active, {} switches, {} apps | 30min: {}m active, {} switches, {} apps
@@ -1734,14 +1957,15 @@ SWITCHES:
 
 RULES: AFK="afk" | Code/IDE="flow"/"working" | Comms="working" | Games="needs_nudge" | 5+ switches="needs_nudge" | 15+min="flow"
 
-RESPOND WITH ONLY:
+IMPORTANT: Return ONLY the JSON object below. Do not include any prefixes like "Activity detected:" or any other text.
+
 {{
  "current_state": "flow|working|needs_nudge|afk",
  "focus_trend": "maintaining_focus|entering_focus|losing_focus|variable|none", 
  "distraction_trend": "low|moderate|increasing|decreasing|high",
  "confidence": "high|medium|low",
- "primary_activity": "brief description",
- "reasoning": "2-3 sentence explanation"
+ "primary_activity": "brief description (NO emojis or prefixes)",
+ "reasoning": "Clear 2-3 sentence explanation without emojis or formatting"
 }}"#,
             user_context,
             if is_currently_afk { "AFK" } else { "Active" },
@@ -1815,87 +2039,55 @@ async fn generate_daily_summary(aw_client: &ActivityWatchClient) -> Result<Daily
     
     
     // Test ActivityWatch connection first
-    eprintln!("=== Testing ActivityWatch Connection ===");
     let _buckets = match aw_client.get_buckets().await {
-        Ok(buckets) => {
-            eprintln!("Successfully connected to ActivityWatch. Found {} buckets:", buckets.len());
-            for (name, _) in &buckets {
-                eprintln!("  - {}", name);
-            }
-            buckets
-        }
+        Ok(buckets) => buckets,
         Err(e) => {
             eprintln!("ERROR: Failed to connect to ActivityWatch: {}", e);
             return Err(format!("ActivityWatch connection failed: {}", e));
         }
     };
     
-    // Test if we can get ANY recent data (last 10 minutes)
-    eprintln!("=== Testing Recent Data Availability ===");
-    let ten_min_ago = now_utc - chrono::Duration::minutes(10);
-    let test_window = aw_client.get_events_in_range("window", ten_min_ago, now_utc).await.unwrap_or_default();
-    eprintln!("Found {} window events in last 10 minutes", test_window.len());
-    if !test_window.is_empty() {
-        eprintln!("Most recent event: timestamp={}, app={}", 
-            test_window[test_window.len()-1].timestamp,
-            test_window[test_window.len()-1].data.get("app").unwrap_or(&serde_json::Value::String("unknown".to_string()))
-        );
-    }
+    // Skip verbose data availability tests for performance
     
-    // Test with a very broad time range (last 7 days) to see if there's ANY data
-    eprintln!("=== Testing Broad Time Range (Last 7 Days) ===");
-    let week_ago = now_utc - chrono::Duration::days(7);
-    let test_broad = aw_client.get_events_in_range("window", week_ago, now_utc).await.unwrap_or_default();
-    eprintln!("Found {} window events in last 7 days", test_broad.len());
-    if !test_broad.is_empty() {
-        eprintln!("Sample recent event: timestamp={}, app={}", 
-            test_broad[test_broad.len()-1].timestamp,
-            test_broad[test_broad.len()-1].data.get("app").unwrap_or(&serde_json::Value::String("unknown".to_string()))
-        );
-    } else {
-        eprintln!("CRITICAL: No window events found in entire last week!");
-        eprintln!("This suggests ActivityWatch window tracking is not working or enabled.");
-    }
-    
-    // Get comprehensive activity data for TODAY using correct time range
-    eprintln!("=== Fetching Activity Data with CORRECT time range ===");
-    eprintln!("Requesting events from {} to {}", day_start_utc, now_utc);
-    let window_events = match aw_client.get_events_in_range("window", day_start_utc, now_utc).await {
-        Ok(events) => {
-            eprintln!("Successfully retrieved {} window events for today", events.len());
-            if !events.is_empty() {
-                eprintln!("First event: timestamp={}, duration={:.1}s", 
-                    events[0].timestamp, events[0].duration);
-                if let Some(app) = events[0].data.get("app") {
-                    eprintln!("  app: {}", app);
-                }
-                eprintln!("Last event: timestamp={}, duration={:.1}s", 
-                    events[events.len()-1].timestamp, events[events.len()-1].duration);
-                
-                // Show more detail about all events if there are few
-                if events.len() <= 10 {
-                    eprintln!("=== ALL EVENTS ({}): ===", events.len());
-                    for (i, event) in events.iter().enumerate() {
-                        eprintln!("  {}: {} - {} for {:.1}s", 
-                            i+1, 
-                            event.timestamp, 
-                            event.data.get("app").unwrap_or(&serde_json::Value::String("unknown".to_string())),
-                            event.duration
-                        );
-                    }
-                }
-            } else {
-                eprintln!("WARNING: No window events found for today's range!");
-            }
-            events
-        }
+    // Get window events filtered by non-AFK periods
+    let window_events_json = match aw_client.get_active_window_events(day_start_utc, now_utc).await {
+        Ok(events) => events,
         Err(e) => {
-            eprintln!("ERROR: Failed to get window events: {}", e);
+            eprintln!("ERROR: Failed to get active window events: {}", e);
             Vec::new()
         }
     };
     
-    let afk_events = match aw_client.get_events_in_range("afk", day_start_utc, now_utc).await {
+    // Convert JSON events to Event structs for compatibility
+    let mut window_events = Vec::new();
+    for event_json in window_events_json {
+        if let Ok(timestamp_str) = event_json.get("timestamp")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing timestamp") {
+            if let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp_str) {
+                let timestamp = timestamp.with_timezone(&Utc);
+                let duration = event_json.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let data = event_json.get("data").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+                let data_map: HashMap<String, serde_json::Value> = data.into_iter().collect();
+                
+                window_events.push(Event {
+                    timestamp,
+                    duration,
+                    data: data_map,
+                });
+            }
+        }
+    }
+    
+    eprintln!("Converted {} events to Event structs", window_events.len());
+    if !window_events.is_empty() {
+        eprintln!("First active event: timestamp={}, app={}", 
+            window_events[0].timestamp,
+            window_events[0].data.get("app").unwrap_or(&serde_json::Value::String("unknown".to_string()))
+        );
+    }
+    
+    let _afk_events = match aw_client.get_events_in_range("afk", day_start_utc, now_utc).await {
         Ok(events) => {
             eprintln!("Successfully retrieved {} AFK events for today", events.len());
             events
@@ -1906,35 +2098,68 @@ async fn generate_daily_summary(aw_client: &ActivityWatchClient) -> Result<Daily
         }
     };
     
-    // If no data for full day, try a shorter range (last 4 hours)
-    let (final_window_events, _final_afk_events) = if window_events.is_empty() && afk_events.is_empty() {
-        eprintln!("No data for full day, trying last 4 hours...");
+    // If no data for full day, try a shorter range (last 4 hours) - still using AFK filtering
+    let final_window_events = if window_events.is_empty() {
+        eprintln!("No active data for full day, trying last 4 hours with AFK filtering...");
         let four_hours_ago = now_utc - chrono::Duration::hours(4);
-        let window_4h = aw_client.get_events_in_range("window", four_hours_ago, now_utc).await.unwrap_or_default();
-        let afk_4h = aw_client.get_events_in_range("afk", four_hours_ago, now_utc).await.unwrap_or_default();
-        eprintln!("4-hour fallback: {} window events, {} AFK events", window_4h.len(), afk_4h.len());
-        (window_4h, afk_4h)
+        
+        // Get AFK-filtered window events for last 4 hours
+        let window_events_4h_json = aw_client.get_active_window_events(four_hours_ago, now_utc).await.unwrap_or_default();
+        
+        // Convert to Event structs
+        let mut window_4h = Vec::new();
+        for event_json in window_events_4h_json {
+            if let Ok(timestamp_str) = event_json.get("timestamp")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing timestamp") {
+                if let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp_str) {
+                    let timestamp = timestamp.with_timezone(&Utc);
+                    let duration = event_json.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let data = event_json.get("data").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+                    let data_map: HashMap<String, serde_json::Value> = data.into_iter().collect();
+                    
+                    window_4h.push(Event {
+                        timestamp,
+                        duration,
+                        data: data_map,
+                    });
+                }
+            }
+        }
+        
+        eprintln!("4-hour fallback with AFK filtering: {} active window events", window_4h.len());
+        window_4h
     } else {
-        (window_events, afk_events)
+        window_events
     };
     
     // Process and analyze daily data
     let mut app_durations: HashMap<String, f64> = HashMap::new();
+    let mut app_titles: HashMap<String, Vec<String>> = HashMap::new();
     let mut total_active_time = 0.0;
     let mut session_count = 0;
     
     eprintln!("=== Processing {} window events ===", final_window_events.len());
     
-    // Calculate total time spent in each application
+    // Calculate total time spent in each application and collect titles
     for (i, event) in final_window_events.iter().enumerate() {
         if let Some(app) = event.data.get("app").and_then(|v| v.as_str()) {
             let duration_minutes = event.duration / 60.0;
+            let title = event.data.get("title").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            
             *app_durations.entry(app.to_string()).or_insert(0.0) += duration_minutes;
+            
+            // Collect unique titles for each app (up to 3 most common)
+            let titles = app_titles.entry(app.to_string()).or_insert_with(Vec::new);
+            if !titles.contains(&title.to_string()) && titles.len() < 3 {
+                titles.push(title.to_string());
+            }
+            
             total_active_time += duration_minutes;
             session_count += 1;
             
             if i < 3 { // Log first few events for debugging
-                eprintln!("Event {}: {} for {:.1} min", i+1, app, duration_minutes);
+                eprintln!("Event {}: {} - {} for {:.1} min", i+1, app, title, duration_minutes);
             }
         }
     }
@@ -1949,7 +2174,27 @@ async fn generate_daily_summary(aw_client: &ActivityWatchClient) -> Result<Daily
     top_apps.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let top_applications: Vec<String> = top_apps.iter()
         .take(5)
-        .map(|(app, time)| format!("{} ({:.1}h)", app, time / 60.0))
+        .map(|(app, time)| {
+            let titles = app_titles.get(app).cloned().unwrap_or_default();
+            if titles.is_empty() {
+                format!("{} ({:.1}h)", app, time / 60.0)
+            } else {
+                // Include up to 2 sample titles
+                let title_sample = titles.iter()
+                    .take(2)
+                    .map(|t| {
+                        // Truncate long titles (UTF-8 safe)
+                        if t.chars().count() > 40 {
+                            format!("{}...", t.chars().take(37).collect::<String>())
+                        } else {
+                            t.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{} ({:.1}h) - {}", app, time / 60.0, title_sample)
+            }
+        })
         .collect();
     
     // Calculate time periods and patterns
@@ -1964,30 +2209,26 @@ async fn generate_daily_summary(aw_client: &ActivityWatchClient) -> Result<Daily
     
     // Create comprehensive daily summary prompt
     let prompt = format!(
-        r#"Hey! Quick daily check-in time. Look at this activity data and give me a casual, friendly summary.
+        r#"Write a plain text summary of today's activity. NO JSON, NO formatting, just plain text.
 
-📅 DATE: {}
+Date: {}
+User context: {}
+Active hours: {:.1}h (AFK time excluded)
+App switches: {}
+Average session: {:.1} minutes
+Focus score: {:.0}%
 
-🎯 USER CONTEXT: {}
-- Please consider this context when analyzing the activity data and providing insights
-
-Your computer stats today:
-- Active time: {:.1} hours
-- App switches: {}
-- Average focus per app: {:.1} minutes
-- Productivity vibe: {:.0}%
-
-Top apps you used:
+Top apps:
 {}
 
-Started working: {} | Current time: {} | Apps used: {}
+Working hours: {} to {}
+Total apps used: {}
 
-Give me a SHORT, casual summary (max 100 words) like you're texting a friend:
-- What did you mostly work on today?
-- How was your focus/productivity?
-- Any quick tips or observations?
+Write exactly 2 sentences:
+1. What apps were used most today
+2. How focused/productive the session was
 
-Keep it friendly, brief, and encouraging. Use simple language and be conversational!"#,
+Keep it under 100 words total. Plain text only. Tone should be Empathetic."#,
         now.format("%A, %B %d, %Y"),
         user_config.user_context,
         active_hours,
@@ -2004,23 +2245,55 @@ Keep it friendly, brief, and encouraging. Use simple language and be conversatio
         top_apps.len()
     );
     
-    eprintln!("=== Calling LLM for Daily Summary ===");
-    eprintln!("Prompt length: {} characters", prompt.len());
-    eprintln!("FULL PROMPT:");
-    eprintln!("{}", prompt);
-    eprintln!("=== END FULL PROMPT ===");
+    // Reduce verbose logging
+    eprintln!("Calling LLM for daily summary...");
     
     // Call LLM for daily summary
     let summary_text = match call_ollama_api(&prompt).await {
         Ok(response) => {
-            eprintln!("LLM Response received: {} characters", response.len());
-            eprintln!("Response preview: {}", &response[..response.len().min(100)]);
-            // Try to extract meaningful content from LLM response
-            if response.len() > 50 {
-                response
+            // eprintln!("LLM Response received: {} characters", response.len());
+            
+            // Try to parse JSON if the LLM returned JSON despite instructions
+            let cleaned_response = if response.trim().starts_with('{') {
+                // LLM returned JSON, try to extract the summary field
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response) {
+                    if let Some(summary) = json.get("Summary").and_then(|v| v.as_str()) {
+                        summary.to_string()
+                    } else if let Some(summary) = json.get("summary").and_then(|v| v.as_str()) {
+                        summary.to_string()
+                    } else {
+                        // Try to concatenate all string values in the JSON
+                        let mut parts = Vec::new();
+                        if let Some(obj) = json.as_object() {
+                            for (_, value) in obj {
+                                if let Some(s) = value.as_str() {
+                                    parts.push(s);
+                                }
+                            }
+                        }
+                        parts.join(" ")
+                    }
+                } else {
+                    // Failed to parse JSON, use the raw response
+                    response
+                }
             } else {
-                eprintln!("LLM response too short, using fallback");
-                format!("📊 Daily Summary: {:.1}h active across {} applications. Primary focus: {}. {} total sessions with {:.1} min average duration.",
+                // Not JSON, use as-is
+                response
+            };
+            
+            // Clean any remaining formatting issues
+            let final_response = cleaned_response
+                .replace("\\n", " ")
+                .replace("\\\"", "\"")
+                .trim()
+                .to_string();
+            
+            if final_response.len() > 50 {
+                final_response
+            } else {
+                eprintln!("LLM response too short after cleaning, using fallback");
+                format!("Daily Summary: {:.1}h active across {} applications. Primary focus: {}. {} total sessions with {:.1} min average duration.",
                     active_hours,
                     top_apps.len(),
                     top_apps.first().map(|(app, _)| app.as_str()).unwrap_or("various tasks"),
@@ -2031,7 +2304,7 @@ Keep it friendly, brief, and encouraging. Use simple language and be conversatio
         }
         Err(e) => {
             eprintln!("LLM call failed: {}, using fallback", e);
-            format!("📊 Today's Activity: {:.1} hours active, {} applications used. Top focus: {}. Productivity sessions: {}.",
+            format!("\n\nToday's Activity: {:.1} hours active, {} applications used. Top focus: {}. Productivity sessions: {}.",
                 active_hours,
                 top_apps.len(),
                 top_apps.first().map(|(app, _)| app.as_str()).unwrap_or("various tasks"),
@@ -2072,7 +2345,7 @@ Keep it friendly, brief, and encouraging. Use simple language and be conversatio
     
     file.write_all(daily_summary_content.as_bytes()).map_err(|e| e.to_string())?;
     
-    eprintln!("Daily summary saved to: {:?}", daily_summary_file);
+    eprintln!("\n\nDaily summary saved to: {:?}", daily_summary_file);
     
     Ok(DailySummary {
         date: now.format("%Y-%m-%d").to_string(),
@@ -2087,26 +2360,13 @@ Keep it friendly, brief, and encouraging. Use simple language and be conversatio
 async fn generate_ai_summary(aw_client: &ActivityWatchClient, now: chrono::DateTime<chrono::Local>) -> Result<(String, u32, String), String> {
     // Load user configuration
     let user_config = load_user_config_internal().await.unwrap_or_default();
-    eprintln!("Using user context for AI summary: {}", user_config.user_context);
     
     // Initialize event processor
     let processor = EventProcessor::new();
     
-    // Get multi-timeframe data from ActivityWatch
-    let multi_timeframe_data = match aw_client.get_multi_timeframe_data().await {
-        Ok(data) => {
-            // Debug: Log what data we actually got
-            for (timeframe, events_by_type) in &data {
-                eprintln!("Timeframe {}: {} event types", timeframe, events_by_type.len());
-                for (event_type, events) in events_by_type {
-                    eprintln!("  - {} events: {} events", event_type, events.len());
-                    if !events.is_empty() {
-                        eprintln!("    First event: {:?}", events[0]);
-                    }
-                }
-            }
-            data
-        },
+    // Get multi-timeframe data from ActivityWatch with AFK filtering
+    let multi_timeframe_data = match aw_client.get_multi_timeframe_data_active().await {
+        Ok(data) => data,
         Err(e) => {
             eprintln!("Failed to fetch multi-timeframe data: {}", e);
             return Ok(generate_time_based_summary(now));
@@ -2115,14 +2375,6 @@ async fn generate_ai_summary(aw_client: &ActivityWatchClient, now: chrono::DateT
     
     // Prepare raw data for LLM analysis using the proper EventProcessor method
     let raw_data = processor.prepare_raw_data_for_llm(&multi_timeframe_data);
-    
-    // Debug: Log what raw data was prepared for LLM
-    eprintln!("Timeframes: {}", raw_data.timeframes.len());
-    eprintln!("Activity timeline events: {}", raw_data.activity_timeline.len());
-    eprintln!("Context switches: {}", raw_data.context_switches.len());
-    if !raw_data.activity_timeline.is_empty() {
-        eprintln!("First timeline event: {:?}", raw_data.activity_timeline[0]);
-    }
     
     // Create the comprehensive state analysis prompt
     let prompt = processor.create_state_analysis_prompt(&raw_data, &user_config.user_context);
@@ -2232,23 +2484,26 @@ fn extract_field(text: &str, field_name: &str) -> Option<String> {
 
 // Removed redundant fetch_activity_data function - now using ActivityWatchClient::get_multi_timeframe_data() and EventProcessor::prepare_raw_data_for_llm()
 
-fn find_bucket_by_type(buckets: &HashMap<String, serde_json::Value>, bucket_type: &str) -> Option<String> {
-    for (bucket_id, bucket_info) in buckets {
-        if let Some(btype) = bucket_info.get("type").and_then(|t| t.as_str()) {
-            if btype == bucket_type {
+
+// Find bucket by exact prefix pattern (e.g., "aw-watcher-window" matches "aw-watcher-window_HarryYu-Desktop")
+fn find_bucket_by_exact_prefix(buckets: &HashMap<String, serde_json::Value>, prefix: &str) -> Option<String> {
+    // Look for buckets that start with the exact prefix
+    // This handles computer-specific suffixes like "_HarryYu-Desktop"
+    for (bucket_id, _) in buckets {
+        if bucket_id.starts_with(prefix) {
+            // Ensure this is a standard ActivityWatch bucket, not a plugin
+            // Standard buckets follow pattern: aw-watcher-{type}_{hostname}
+            if prefix == "aw-watcher-window" && bucket_id.starts_with("aw-watcher-window") {
+                // eprintln!("Found window bucket: {}", bucket_id);
+                return Some(bucket_id.clone());
+            } else if prefix == "aw-watcher-afk" && bucket_id.starts_with("aw-watcher-afk") {
+                // eprintln!("Found AFK bucket: {}", bucket_id);
                 return Some(bucket_id.clone());
             }
         }
     }
-    None
-}
-
-fn find_bucket_by_prefix(buckets: &HashMap<String, serde_json::Value>, prefix: &str) -> Option<String> {
-    for (bucket_id, _) in buckets {
-        if bucket_id.starts_with(prefix) {
-            return Some(bucket_id.clone());
-        }
-    }
+    
+    // eprintln!("WARNING: No bucket found with prefix: {}", prefix);
     None
 }
 
@@ -2263,13 +2518,30 @@ fn find_bucket_by_prefix(buckets: &HashMap<String, serde_json::Value>, prefix: &
 // Removed redundant analyze_patterns function - now using EventProcessor::analyze_cross_timeframe_patterns()
 
 fn clean_bracketed_text(text: &str) -> String {
-    text.trim()
+    let mut cleaned = text.trim();
+    
+    // Remove common prefixes that break formatting
+    cleaned = cleaned
+        .strip_prefix("📊 Activity detected: [.")
+        .or_else(|| cleaned.strip_prefix("📊 Activity detected: ["))
+        .or_else(|| cleaned.strip_prefix("📊 Activity detected:"))
+        .or_else(|| cleaned.strip_prefix("Activity detected: ["))
+        .or_else(|| cleaned.strip_prefix("Activity detected:"))
+        .unwrap_or(cleaned);
+    
+    // Remove brackets
+    cleaned = cleaned
         .strip_prefix('[')
-        .unwrap_or(text)
+        .unwrap_or(cleaned)
         .strip_suffix(']')
-        .unwrap_or(text)
-        .trim()
-        .to_string()
+        .unwrap_or(cleaned);
+    
+    // Remove trailing period if it's the only character
+    if cleaned == "." {
+        return String::new();
+    }
+    
+    cleaned.trim().to_string()
 }
 
 fn generate_user_summary(analysis: &LLMAnalysis) -> String {
@@ -2277,11 +2549,11 @@ fn generate_user_summary(analysis: &LLMAnalysis) -> String {
     let clean_reasoning = clean_bracketed_text(&analysis.reasoning);
     
     match analysis.current_state.as_str() {
-        "flow" => format!("🔥 Flow state detected! You're deeply focused on {}. {}", clean_activity, clean_reasoning),
-        "working" => format!("💼 Productive work session on {}. {}", clean_activity, clean_reasoning),
-        "needs_nudge" => format!("🎯 Time for a gentle nudge. Currently: {}. {}", clean_activity, clean_reasoning),
+        "flow" => format!("🔥 Flow state detected! {}. {}", clean_activity, clean_reasoning),
+        "working" => format!("💼 Working... {}. {}", clean_activity, clean_reasoning),
+        "needs_nudge" => format!("🎯 You need a nudge bro. {}. {}", clean_activity, clean_reasoning),
         "afk" => format!("💤 Welcome back! Ready to dive into your next task. {}", clean_reasoning),
-        _ => format!("Currently working on {}. {}", clean_activity, clean_reasoning),
+        _ => format!("{}. {}", clean_activity, clean_reasoning),
     }
 }
 
@@ -2334,8 +2606,6 @@ async fn call_ollama_api(prompt: &str) -> Result<String, String> {
         }
     });
     
-    eprintln!("Sending prompt to Ollama: {}", prompt.chars().take(100).collect::<String>());
-    
     let response = client
         .post(format!("http://localhost:{}/api/generate", config.ollama_port))
         .json(&payload)
@@ -2349,8 +2619,6 @@ async fn call_ollama_api(prompt: &str) -> Result<String, String> {
     
     let response_text = response.text().await
         .map_err(|e| format!("Failed to read Ollama response: {}", e))?;
-    
-    eprintln!("Ollama raw response: {}", response_text.chars().take(200).collect::<String>());
     
     // Parse Ollama's response format
     match serde_json::from_str::<serde_json::Value>(&response_text) {
@@ -2589,15 +2857,8 @@ async fn test_ollama_connection() -> bool {
         .send()
         .await
     {
-        Ok(response) => {
-            let success = response.status().is_success();
-            eprintln!("Ollama connection test: status={}, success={}", response.status(), success);
-            success
-        },
-        Err(e) => {
-            eprintln!("Ollama connection failed: {}", e);
-            false
-        }
+        Ok(response) => response.status().is_success(),
+        Err(_) => false
     }
 }
 
@@ -2687,8 +2948,8 @@ async fn classify_activities(app: AppHandle, _state: State<'_, AppState>) -> Res
     let now = chrono::Utc::now();
     let start_time = now - chrono::Duration::hours(4);
     
-    // Get window events
-    let window_events = match aw_client.get_window_events(start_time, now).await {
+    // Get window events filtered by non-AFK periods
+    let window_events = match aw_client.get_active_window_events(start_time, now).await {
         Ok(events) => events,
         Err(e) => {
             send_log(&app, "error", &format!("Failed to get window events: {}", e));
@@ -2700,11 +2961,23 @@ async fn classify_activities(app: AppHandle, _state: State<'_, AppState>) -> Res
         }
     };
     
-    // Sum up time spent per application
+    // Sum up time spent per application and collect titles
     let mut app_times: HashMap<String, u64> = HashMap::new();
+    let mut app_titles: HashMap<String, Vec<String>> = HashMap::new();
+    
     for event in &window_events {
-        if let (Some(app_name), Some(duration)) = (event.get("app").and_then(|v| v.as_str()), event.get("duration").and_then(|v| v.as_u64())) {
-            *app_times.entry(app_name.to_string()).or_insert(0) += duration;
+        if let (Some(data), Some(duration)) = (event.get("data").and_then(|v| v.as_object()), event.get("duration").and_then(|v| v.as_u64())) {
+            if let Some(app_name) = data.get("app").and_then(|v| v.as_str()) {
+                *app_times.entry(app_name.to_string()).or_insert(0) += duration;
+                
+                // Collect sample titles for context
+                if let Some(title) = data.get("title").and_then(|v| v.as_str()) {
+                    let titles = app_titles.entry(app_name.to_string()).or_insert_with(Vec::new);
+                    if !titles.contains(&title.to_string()) && titles.len() < 3 {
+                        titles.push(title.to_string());
+                    }
+                }
+            }
         }
     }
     
@@ -2716,13 +2989,25 @@ async fn classify_activities(app: AppHandle, _state: State<'_, AppState>) -> Res
         return Ok(classify_activities_heuristic(&app_times));
     }
     
-    // Create prompt for AI classification
+    // Create prompt for AI classification with titles
     let app_list: Vec<String> = app_times.iter()
-        .map(|(app, duration)| format!("{}: {}s", app, duration))
+        .map(|(app, duration)| {
+            let titles = app_titles.get(app).cloned().unwrap_or_default();
+            if titles.is_empty() {
+                format!("{}: {}s", app, duration)
+            } else {
+                let title_sample = titles.iter()
+                    .take(2)
+                    .map(|t| if t.chars().count() > 30 { format!("{}...", t.chars().take(27).collect::<String>()) } else { t.clone() })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}: {}s ({})", app, duration, title_sample)
+            }
+        })
         .collect();
     
     let prompt = format!(
-        "Classify apps: work/communication/distraction. Return JSON only.\n{}\nFormat: {{\"work\":60,\"communication\":25,\"distraction\":15}}",
+        "Classify apps based on window titles into work/communication/distraction categories. Return JSON only.\n\nActivity:\n{}\n\nReturn: {{\"work\":60,\"communication\":25,\"distraction\":15}}",
         app_list.join("\n")
     );
     

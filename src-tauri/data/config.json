@@ -1,9 +1,9 @@
 {
-  "user_context": "",
+  "user_context": "companion cube is a productivity app that im currently working on. address the user as \"you\"",
   "activitywatch_port": 5600,
   "ollama_port": 11434,
-  "study_focus": "",
-  "coach_task": "learn woodworking",
+  "study_focus": "learning about rust",
+  "coach_task": "learning about DIY Woodworking",
   "chill_notification_prompt": "Hey! You've been having fun for a while now. Maybe it's time to take a break or switch to something productive? 🌟",
   "study_notification_prompt": "Looks like you got distracted from studying. Let's get back on track! 📚",
   "coach_notification_prompt": "Time to check your progress! Please review and update your todo list. ✓",
