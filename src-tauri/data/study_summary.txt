@@ -1,7 +1,7 @@
 ---
-14:37
-The user has been active on a programming project (lib.rs) in Visual Studio Code and terminal sessions, which suggests some focus on coding or studying. However, extended periods of time were also spent on non-study related activities such as watching YouTube videos and socializing on Discord. The focus score is approximately 60.
-60
-mixed
+22:15
+💼 Working... Working on Companion Cube app and managing files. The user has spent a significant amount of time (0.34min + 0.35min) in the Companion Cube app, which is productive. The number of switches is relatively low (9 switches), indicating focus. The user also engaged in file management tasks, which are typically productive. There were minimal distractions as evidenced by the lack of entertainment apps or extended periods on non-productive apps.
+80
+working
 Mode: study
-Focus: general studying
+Focus: planning a trip for 7 peeps

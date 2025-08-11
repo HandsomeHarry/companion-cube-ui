@@ -1,4 +1,4 @@
-import { Sun, Moon, RefreshCw, Eye, Cpu, PlayCircle } from 'lucide-react'
+import { Sun, Moon, RefreshCw, Eye, Cpu } from 'lucide-react'
 import ActivityChart from './ActivityChart'
 import Terminal from './Terminal'
 import { getThemeClasses } from '../utils/theme'
@@ -64,7 +64,6 @@ interface MainContentProps {
   onSaveConfig: () => void
   activityClassification: ActivityClassification | null
   isClassifying: boolean
-  onTriggerModeLogic: () => void
 }
 
 function MainContent({ 
@@ -82,8 +81,7 @@ function MainContent({
   onGenerateDaily,
   onSaveConfig,
   activityClassification,
-  isClassifying,
-  onTriggerModeLogic
+  isClassifying
 }: MainContentProps) {
   const studyFocusRef = useRef<HTMLTextAreaElement>(null)
 
@@ -183,15 +181,6 @@ function MainContent({
               </div>
             </div>
             
-            {/* Mode Logic Trigger Button */}
-            <button
-              onClick={onTriggerModeLogic}
-              className={`p-2 rounded-lg ${themeClasses.surfaceSecondary} hover:opacity-75 transition-colors`}
-              title="Trigger mode-specific logic"
-            >
-              <PlayCircle className="w-4 h-4 text-slate-400" />
-            </button>
-            
             {/* Theme Toggle */}
             <button
               onClick={onToggleTheme}
@@ -282,7 +271,9 @@ function MainContent({
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h3 className={`text-lg font-semibold ${themeClasses.textPrimary} mb-1`}>
-                        5-minute State
+                        {currentMode === 'study_buddy' ? '5-minute State' : 
+                         currentMode === 'coach' ? '15-minute State' : 
+                         'Hourly State'}
                       </h3>
                       <p className={`text-sm ${themeClasses.textSecondary}`}>
                         {cleanStateDisplay(hourlySummary?.current_state)}
@@ -371,17 +362,10 @@ function MainContent({
 
                 {/* To-do List - Second Card */}
                 <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="mb-3">
                     <h3 className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
                       To-do List
                     </h3>
-                    <button
-                      onClick={onTriggerModeLogic}
-                      className={`px-3 py-1 text-white rounded-lg transition-colors text-sm`}
-                      style={{ backgroundColor: themeClasses.primary }}
-                    >
-                      Update
-                    </button>
                   </div>
                   
                   <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-3 overflow-y-auto min-h-[120px]`}>

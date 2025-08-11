@@ -153,6 +153,51 @@ function App() {
     }
   }, [])
 
+  // Listen for hourly summary updates from background timer
+  useEffect(() => {
+    const unlistenSummary = listen('hourly_summary_updated', (event) => {
+      console.log('Received hourly summary update:', event.payload)
+      const summary = event.payload as HourlySummary
+      console.log('Setting hourly summary:', summary)
+      setHourlySummary(summary)
+      // Force a re-render by updating a dummy state if needed
+      console.log('Current hourly summary state after update:', summary)
+    })
+    
+    // Also periodically sync with backend every 30 seconds
+    const syncInterval = setInterval(async () => {
+      try {
+        const hourlyData = await invoke('get_hourly_summary')
+        setHourlySummary(hourlyData as HourlySummary)
+      } catch (error) {
+        console.error('Failed to sync hourly summary:', error)
+      }
+    }, 30000)
+
+    const unlistenNotification = listen('show_notification', (event) => {
+      console.log('Received notification:', event.payload)
+      // Could show in-app notification here if desired
+    })
+
+    // Also listen for mode changes to refresh summary
+    const unlistenModeChange = listen('mode_changed', async (event) => {
+      console.log('Mode changed, refreshing summary...')
+      try {
+        const hourlyData = await invoke('get_hourly_summary')
+        setHourlySummary(hourlyData as HourlySummary)
+      } catch (error) {
+        console.error('Failed to refresh summary after mode change:', error)
+      }
+    })
+
+    return () => {
+      unlistenSummary.then(f => f())
+      unlistenNotification.then(f => f())
+      unlistenModeChange.then(f => f())
+      clearInterval(syncInterval)
+    }
+  }, [])
+
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode)
   }
@@ -214,15 +259,6 @@ function App() {
     }
   }
 
-  const handleTriggerModeLogic = async () => {
-    try {
-      await invoke('trigger_mode_logic')
-      console.log('Mode logic triggered successfully')
-    } catch (error) {
-      console.error('Failed to trigger mode logic:', error)
-    }
-  }
-
   const renderContent = () => {
     switch (currentPage) {
       case 'settings':
@@ -246,7 +282,6 @@ function App() {
             onSaveConfig={handleSaveConfig}
             activityClassification={activityClassification}
             isClassifying={isClassifying}
-            onTriggerModeLogic={handleTriggerModeLogic}
           />
         )
     }

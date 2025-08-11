@@ -1989,3 +1989,576 @@ Summary:
 2. Unfortunately, the session was not very focused or productive as your focus score was only 2%. It's important to remember to take breaks and prioritize tasks to improve productivity. Keep going, you got this!
 
 ================================================================================
+Date: 2025-07-24
+Generated at: 2025-07-24 15:54:23
+Active time: 1.6 hours
+Total sessions: 438
+Top applications:
+brave.exe (0.4h) - club mate - Google Search www.google...., kvass - Google Search www.google.com ...
+Discord.exe (0.4h) - @LigmaToes - Discord, @zaredo - Discord
+ApplicationFrameHost.exe (0.2h) - 便笺, wackyserver ‎- 远程桌面
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, Welcome - Visual Studio Code
+app.exe (0.1h) - Companion Cube, 
+
+Summary:
+1. The top apps used today were Brave.exe, Discord.exe, ApplicationFrameHost.exe, Code.exe, and app.exe (Companion Cube).
+2. Today's session was not as focused or productive as we aim for, with a focus score of only 2%. Let's work on minimizing distractions and increasing concentration in the upcoming sessions.
+
+================================================================================
+Date: 2025-07-24
+Generated at: 2025-07-24 16:28:22
+Active time: 1.7 hours
+Total sessions: 462
+Top applications:
+brave.exe (0.5h) - 大尺寸顶级OLED电视推荐 yuanbao.tencent.com - B..., 【幸运星】一个视频告诉你小镜为什么是萌王_哔哩哔哩_bilibili ww...
+Discord.exe (0.4h) - #relaxation-vault | Aperture Science ..., @LigmaToes - Discord
+ApplicationFrameHost.exe (0.2h) - 便笺, wackyserver ‎- 远程桌面
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, Welcome - Visual Studio Code
+app.exe (0.2h) - Companion Cube, 
+
+Summary:
+1. The top apps used today were Brave.exe, Discord.exe, ApplicationFrameHost.exe, Code.exe, app.exe (Companion Cube), and Bilibili.
+2. Today's session was not as focused or productive as we aim for, with a focus score of only 2%. Let's work on reducing app switches and increasing active time in the Companion Cube app tomorrow. Keep up the good work!
+
+================================================================================
+Date: 2025-07-24
+Generated at: 2025-07-24 22:26:31
+Active time: 2.7 hours
+Total sessions: 706
+Top applications:
+brave.exe (1.1h) - 北京7人4日游详细攻略 yuanbao.tencent.com - Brave, 前门 - 百度地图 map.baidu.com - Brave
+Discord.exe (0.5h) - My Straight Cisgender Male Friend Gro..., #relaxation-vault | Aperture Science ...
+Weixin.exe (0.3h) - 图片和视频, 微信
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, Welcome - Visual Studio Code
+ApplicationFrameHost.exe (0.2h) - 便笺, wackyserver ‎- 远程桌面
+
+Summary:
+1. The apps you used most today were Brave, Discord, Weixin, Code, and ApplicationFrameHost (lib.rs - cc).
+2. Unfortunately, your focus score was quite low at 2%, indicating a need for strategies to improve productivity during your active hours.
+
+================================================================================
+Date: 2025-07-24
+Generated at: 2025-07-24 22:26:47
+Active time: 2.7 hours
+Total sessions: 706
+Top applications:
+brave.exe (1.1h) - 北京7人4日游详细攻略 yuanbao.tencent.com - Brave, 前门 - 百度地图 map.baidu.com - Brave
+Discord.exe (0.5h) - My Straight Cisgender Male Friend Gro..., #relaxation-vault | Aperture Science ...
+Weixin.exe (0.3h) - 图片和视频, 微信
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, Welcome - Visual Studio Code
+ApplicationFrameHost.exe (0.2h) - 便笺, wackyserver ‎- 远程桌面
+
+Summary:
+1. The top apps used today were Brave, Discord, Weixin, Code, and ApplicationFrameHost (便笺).
+2. Unfortunately, your focus score was quite low at just 2%. It seems like there were many app switches and short sessions which might have affected productivity. Let's try to increase the duration of focused work tomorrow. Keep going, you're doing great!
+
+================================================================================
+Date: 2025-07-24
+Generated at: 2025-07-24 22:34:03
+Active time: 2.8 hours
+Total sessions: 731
+Top applications:
+brave.exe (1.1h) - Zie619/n8n-workflows: all of the work..., YouTube www.youtube.com - Brave
+Discord.exe (0.5h) - #relaxation-vault | Aperture Science ..., My Straight Cisgender Male Friend Gro...
+Weixin.exe (0.3h) - 微信, 图片和视频
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, Welcome - Visual Studio Code
+ApplicationFrameHost.exe (0.2h) - 便笺, wackyserver ‎- 远程桌面
+
+Summary:
+1. The top apps used today were Brave (for Zie619/n8n-workflows and YouTube), Discord, Weixin, Code, ApplicationFrameHost (for Notepad++ and Remote Desktop).
+2. Today's session was not as focused or productive as we aim for, with a focus score of only 2%. Let's work on minimizing distractions and maximizing focus time in the upcoming days.
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 13:20:10
+Active time: 3.7 hours
+Total sessions: 938
+Top applications:
+brave.exe (1.1h) - This GTA Vice City Remake is beyond i..., Grand Theft Auto: The Trilogy – The D...
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+Weixin.exe (0.4h) - 微信, Weixin
+postshot.exe (0.3h) - untitled.psht * - Postshot BETA, Select File
+Discord.exe (0.2h) - My Straight Cisgender Male Friend Gro..., @piggyfan23 - Discord
+
+Summary:
+
+
+Today's Activity: 3.7 hours active, 33 applications used. Top focus: brave.exe. Productivity sessions: 938.
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 14:56:14
+Active time: 4.1 hours
+Total sessions: 1012
+Top applications:
+brave.exe (1.4h) - I 3D-Printed Luigi Mangione’s ‘Ghost ..., No coming back from this.. - YouTube ...
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+Weixin.exe (0.4h) - 微信, Weixin
+postshot.exe (0.3h) - untitled.psht * - Postshot BETA, Select File
+Discord.exe (0.3h) - My Straight Cisgender Male Friend Gro..., #relaxation-vault | Aperture Science ...
+
+Summary:
+
+
+Today's Activity: 4.1 hours active, 33 applications used. Top focus: brave.exe. Productivity sessions: 1012.
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 14:57:01
+Active time: 4.1 hours
+Total sessions: 1016
+Top applications:
+brave.exe (1.4h) - I 3D-Printed Luigi Mangione’s ‘Ghost ..., No coming back from this.. - YouTube ...
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+Weixin.exe (0.4h) - 微信, Weixin
+postshot.exe (0.3h) - untitled.psht * - Postshot BETA, Select File
+Discord.exe (0.3h) - My Straight Cisgender Male Friend Gro..., #relaxation-vault | Aperture Science ...
+
+Summary:
+1. The top apps used today were Brave.exe, Resolve.exe, Weixin.exe, postshot.exe, and Discord.exe.
+2. Today's session was not as focused or productive as we aim for, with a focus score of only 2%. Let's work on improving this tomorrow by setting specific goals and taking short, regular breaks to refresh the mind. Keep up the good work!
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 15:23:50
+Active time: 4.5 hours
+Total sessions: 1123
+Top applications:
+brave.exe (1.4h) - Counter-Strike 2 Update for 07/28/202..., Stories • Instagram www.instagram.com...
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+cs2.exe (0.4h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (0.4h) - 微信, 图片和视频
+Discord.exe (0.3h) - #relaxation-vault | Aperture Science ..., My Straight Cisgender Male Friend Gro...
+
+Summary:
+1. The top apps you used today were Brave.exe, Resolve.exe, cs2.exe, Weixin.exe, and Discord.exe.
+2. Your focus score was quite low at 2%, indicating a need for strategies to improve productivity during your active hours.
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 16:42:20
+Active time: 5.7 hours
+Total sessions: 1245
+Top applications:
+brave.exe (1.8h) - I Tested 140 Years of Cars! - YouTube..., 北京5日游行程规划 yuanbao.tencent.com - Brave
+Teenage Blob.exe (0.5h) - Teenage Blob
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+Weixin.exe (0.5h) - 微信, Weixin
+cs2.exe (0.4h) - Counter-Strike 2, 反恐精英：全球攻势
+
+Summary:
+1. The top apps used today were Brave.exe, Teenage Blob.exe, and Weixin.exe.
+2. Today's session was less focused as the focus score was only 3%. It seems there were many app switches which might have impacted productivity. Let's aim for more focus tomorrow!
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 16:45:49
+Active time: 5.8 hours
+Total sessions: 1265
+Top applications:
+brave.exe (1.8h) - I Tested 140 Years of Cars! - YouTube..., 北京5日游行程规划 yuanbao.tencent.com - Brave
+Teenage Blob.exe (0.5h) - Teenage Blob
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+Weixin.exe (0.5h) - 微信, Weixin
+cs2.exe (0.4h) - Counter-Strike 2, 反恐精英：全球攻势
+
+Summary:
+1. The top apps you used today were Brave.exe, Teenage Blob.exe, Resolve.exe, Weixin.exe, and cs2.exe.
+2. Today's session was not as focused or productive as we aim for, with a focus score of only 3%. Let's work together to improve this tomorrow!
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 22:21:46
+Active time: 5.8 hours
+Total sessions: 1284
+Top applications:
+brave.exe (1.8h) - This GTA Vice City Remake is beyond i..., I Tested 140 Years of Cars! - YouTube...
+Teenage Blob.exe (0.5h) - Teenage Blob
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+Weixin.exe (0.5h) - 微信, Weixin
+cs2.exe (0.4h) - Counter-Strike 2, 反恐精英：全球攻势
+
+Summary:
+1. The top apps used today were Brave.exe, Teenage Blob.exe, Resolve.exe, Weixin.exe, and cs2.exe.
+2. Regrettably, your focus and productivity were quite low today, with a focus score of only 3%. Let's work on improving that tomorrow!
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 22:22:18
+Active time: 5.9 hours
+Total sessions: 1287
+Top applications:
+brave.exe (1.8h) - This GTA Vice City Remake is beyond i..., I Tested 140 Years of Cars! - YouTube...
+Teenage Blob.exe (0.5h) - Teenage Blob
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+Weixin.exe (0.5h) - 微信, Weixin
+cs2.exe (0.4h) - Counter-Strike 2, 反恐精英：全球攻势
+
+Summary:
+1. The top apps used today were Brave.exe, Teenage Blob.exe, Resolve.exe, Weixin.exe, and cs2.exe.
+2. Unfortunately, the focus and productivity level was quite low at 3%. Let's work together to improve this tomorrow by setting specific goals and taking regular breaks to recharge.
+
+================================================================================
+Date: 2025-07-29
+Generated at: 2025-07-29 22:29:56
+Active time: 6.0 hours
+Total sessions: 1315
+Top applications:
+brave.exe (1.8h) - This GTA Vice City Remake is beyond i..., I Tested 140 Years of Cars! - YouTube...
+Teenage Blob.exe (0.5h) - Teenage Blob
+Resolve.exe (0.5h) - Project Manager, DaVinci Resolve Studio - test artifacts
+Weixin.exe (0.5h) - 微信, 图片和视频
+cs2.exe (0.4h) - Counter-Strike 2, 反恐精英：全球攻势
+
+Summary:
+1. The top apps used today were Brave.exe, Teenage Blob.exe, Resolve.exe, Weixin.exe, and cs2.exe.
+2. Unfortunately, the focus score was quite low at 3%, indicating a need for strategies to improve productivity during your work hours.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 00:32:44
+Active time: 0.0 hours
+Total sessions: 7
+Top applications:
+Code.exe (0.0h) - lib.rs - cc - Visual Studio Code
+steamwebhelper.exe (0.0h) - Steam, Friends List
+AMDAutoUpdate.exe (0.0h) - C:\Program Files\AMD\AutoUpdate\AMDAu...
+app.exe (0.0h) - Companion Cube
+
+Summary:
+1. The top apps used today were Code.exe, steamwebhelper.exe, AMDAutoUpdate.exe, and Companion Cube.
+2. Unfortunately, the focus score was quite low at just 1%, indicating a need for better time management and minimizing distractions during work hours. Keep going! You're making progress on Companion Cube.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 10:12:36
+Active time: 1.5 hours
+Total sessions: 178
+Top applications:
+cs2.exe (0.9h) - 反恐精英：全球攻势, Counter-Strike 2
+Weixin.exe (0.3h) - 微信, Weixin
+brave.exe (0.2h) - 哔哩哔哩 (゜-゜)つロ 干杯~-bilibili www.bilibil..., 初次约会“我把她舌钉拉出来了”_哔哩哔哩_bilibili www.bil...
+steamwebhelper.exe (0.0h) - Steam, Sign in to Steam
+Resolve.exe (0.0h) - DaVinci Resolve Studio - test artifacts, Select Tool
+
+Summary:
+1. The top apps used today were Counter-Strike 2 (0.9h), Weixin (0.3h), and Bilibili (0.2h).
+2. Today's session was not as focused or productive, with only a 5% focus score. It seems like there might be room for improvement in managing distractions during work hours. Let's try to find a balance between rest and productivity tomorrow!
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 11:05:33
+Active time: 2.3 hours
+Total sessions: 378
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (0.5h) - 微信, 图片和视频
+brave.exe (0.3h) - (1) life isn't real - YouTube www.you..., (1) Make your GPU faster for $7 (REAL...
+Code.exe (0.1h) - lib.rs - cc - Visual Studio Code
+Resolve.exe (0.1h) - DaVinci Resolve Studio - test artifacts, Message
+
+Summary:
+1. The top apps used today were Counter-Strike 2, WeChat, Brave (YouTube and GPU optimization videos), Visual Studio Code, and DaVinci Resolve Studio.
+2. Unfortunately, your focus score was quite low at 4%, indicating a need for improved productivity strategies during active hours.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 11:06:40
+Active time: 2.3 hours
+Total sessions: 381
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (0.5h) - 微信, 图片和视频
+brave.exe (0.3h) - (1) life isn't real - YouTube www.you..., (1) Make your GPU faster for $7 (REAL...
+Code.exe (0.1h) - lib.rs - cc - Visual Studio Code
+Resolve.exe (0.1h) - DaVinci Resolve Studio - test artifacts, Message
+
+Summary:
+1. The top apps used today were Counter-Strike 2, WeChat, Brave Browser (YouTube and GPU optimization videos), Visual Studio Code, and DaVinci Resolve Studio.
+2. Unfortunately, the focus score was quite low at 4%, indicating a need for better time management and minimizing distractions during work hours. Let's aim to improve this tomorrow!
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 11:07:48
+Active time: 2.3 hours
+Total sessions: 384
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (0.5h) - 微信, 图片和视频
+brave.exe (0.3h) - (1) Make your GPU faster for $7 (REAL..., (1) life isn't real - YouTube www.you...
+Code.exe (0.1h) - lib.rs - cc - Visual Studio Code
+Resolve.exe (0.1h) - DaVinci Resolve Studio - test artifacts, Message
+
+Summary:
+1. The top apps used today were Counter-Strike 2, WeChat, Brave browser, Visual Studio Code, and DaVinci Resolve Studio.
+2. Today's session was not as focused or productive as desired, with a focus score of only 4%. It seems there may be room for improvement in managing distractions and optimizing workflow. Keep going, remember the companion cube is here to help!
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 11:22:43
+Active time: 2.5 hours
+Total sessions: 413
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (0.5h) - 微信, 图片和视频
+brave.exe (0.4h) - Google Translate translate.google.com..., 新标签页 - Brave
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+Resolve.exe (0.1h) - DaVinci Resolve Studio - test artifacts, Message
+
+Summary:
+1. The apps you used most today were Counter-Strike 2, WeChat, Brave Browser, Google Translate, and Visual Studio Code.
+2. Unfortunately, your focus score was quite low at 4%, indicating a need for strategies to improve productivity during your active hours. Let's work together on this!
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 11:23:41
+Active time: 2.6 hours
+Total sessions: 421
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (0.5h) - 微信, 图片和视频
+brave.exe (0.4h) - Google Translate translate.google.com..., 新标签页 - Brave
+Code.exe (0.2h) - ● lib.rs - cc - Visual Studio Code, lib.rs - cc - Visual Studio Code
+Resolve.exe (0.1h) - DaVinci Resolve Studio - test artifacts, Message
+
+Summary:
+1. The top apps used today were Counter-Strike 2, WeChat, Brave browser, Google Translate, and Visual Studio Code.
+2. Unfortunately, the focus score was quite low at 4%, indicating a need for better time management strategies to increase productivity.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 11:24:29
+Active time: 2.6 hours
+Total sessions: 423
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (0.5h) - 微信, 图片和视频
+brave.exe (0.4h) - Google Translate translate.google.com..., 新标签页 - Brave
+Code.exe (0.2h) - ● lib.rs - cc - Visual Studio Code, lib.rs - cc - Visual Studio Code
+app.exe (0.1h) - Companion Cube
+
+Summary:
+1. The apps you used most today were Counter-Strike 2, WeChat, Brave Browser, Google Translate, and your Companion Cube app.
+2. Your focus and productivity during sessions was relatively low at 4%. Let's explore strategies to help you stay focused on your project for longer periods.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 18:43:45
+Active time: 3.5 hours
+Total sessions: 649
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+brave.exe (0.6h) - How to fix every iPod Classic. - YouT..., ipod classic teardown - YouTube www.y...
+Weixin.exe (0.6h) - 微信, 图片和视频
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+"Hello there! I see you invested 3.5 hours in active work today across various applications, with Counter-Strike 2 and iPod Classic tutorials taking up a significant portion of your time. It's great to see you engaging with both work and leisure activities!
+
+One positive pattern I noticed was your consistent effort throughout the day, from 00:00 to 18:43. However, it seems that application switches were quite frequent, totaling 649 transitions. This could potentially indicate distraction rather than productive multitasking.
+
+Tomorrow, consider setting specific time blocks for focused work and short breaks to help maintain your focus and productivity. Keep up the good work!"
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 18:47:03
+Active time: 3.5 hours
+Total sessions: 653
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+brave.exe (0.6h) - How to fix every iPod Classic. - YouT..., ipod classic teardown - YouTube www.y...
+Weixin.exe (0.6h) - 微信, 图片和视频
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+"Hello there! It looks like you invested approximately 3.5 hours into active work today, with a significant portion spent on Counter-Strike 2 and learning about iPod Classics. I'm really impressed by your dedication to both your gaming hobby and technical skills! However, it seems that the numerous application switches throughout the day might have impacted your focus. Tomorrow, consider setting aside dedicated blocks of time for focused work and limiting distractions during those periods. Keep up the great work!"
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 19:28:26
+Active time: 4.2 hours
+Total sessions: 755
+Top applications:
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+brave.exe (1.1h) - 腾讯元宝 - 轻松工作 多点生活 yuanbao.tencent.com ..., 新标签页 - Brave
+Weixin.exe (0.7h) - 微信, 图片和视频
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+"Hello there! It's great to see you putting in 4.2 hours of active time into your companion cube project, especially on Counter-Strike 2 and Brave. Your dedication is commendable! However, it seems that your focus score was quite low at only 3%. To optimize your productivity, consider setting specific goals for each session and taking short, focused breaks to help maintain concentration. Remember, quality work over quantity can lead to significant progress. Balance is key, so don't forget to take time for relaxation too!"
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 20:40:18
+Active time: 5.2 hours
+Total sessions: 984
+Top applications:
+brave.exe (1.8h) - 中建宸园-170户型-0719 www.kujiale.com - Brave, (34 封私信 / 11 条消息) 大家选爱格板做全屋定制，仅仅是面板爱格...
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (1.0h) - 微信, 图片和视频
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+Great job on dedicating 5.2 hours to your work today, especially focusing on 'brave.exe' and 'cs2.exe'. It's impressive that you managed 34 emails and 11 messages within Brave.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 20:40:37
+Active time: 5.2 hours
+Total sessions: 987
+Top applications:
+brave.exe (1.8h) - 中建宸园-170户型-0719 www.kujiale.com - Brave, (34 封私信 / 11 条消息) 大家选爱格板做全屋定制，仅仅是面板爱格...
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (1.0h) - 微信, 图片和视频
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.2h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+Great effort today, you invested 5.2 hours in your projects! I see you spent a significant amount of time on 'brave.exe' and 'cs2.exe'. It's impressive to see your dedication to 'companion cube' and Counter-Strike 2. However, it seems that focus was limited today, with only 3% focus score. Let's aim for more focused sessions tomorrow by taking short breaks to refresh your mind during longer work periods.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 21:23:58
+Active time: 5.3 hours
+Total sessions: 1006
+Top applications:
+brave.exe (1.8h) - 中建宸园-170户型-0719 www.kujiale.com - Brave, (34 封私信 / 11 条消息) 大家选爱格板做全屋定制，仅仅是面板爱格...
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (1.0h) - 微信, 群聊的聊天记录
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.3h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+I see you've been busy today with your companion cube project, Counter-Strike 2, and other activities. Keep up the good work, you're making progress every day! Hello there! However, it seems like your focus score is relatively low today. Let's work on extending focused sessions and minimizing distractions. It's great to see that you've engaged in coding for over an hour! Remember to take regular breaks and maintain a healthy work-life balance. Your well-being is important too!
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 21:24:45
+Active time: 5.3 hours
+Total sessions: 1007
+Top applications:
+brave.exe (1.8h) - 中建宸园-170户型-0719 www.kujiale.com - Brave, (34 封私信 / 11 条消息) 大家选爱格板做全屋定制，仅仅是面板爱格...
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (1.0h) - 微信, 群聊的聊天记录
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.3h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+Great effort today, you! You spent a total of 5.3 hours actively working, with your main activities being brave.exe, Counter-Strike 2, and WeChat. It's fantastic to see you making progress on your companion cube project. However, it seems that focus time was limited to just 3%. To optimize productivity, consider setting dedicated focus periods for larger tasks like coding. Remember, quality focus time is more beneficial than quantity. Balance is key! Keep up the good work and enjoy your well-deserved breaks.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 21:25:49
+Active time: 5.3 hours
+Total sessions: 1013
+Top applications:
+brave.exe (1.8h) - 中建宸园-170户型-0719 www.kujiale.com - Brave, (34 封私信 / 11 条消息) 大家选爱格板做全屋定制，仅仅是面板爱格...
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (1.0h) - 微信, 群聊的聊天记录
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.3h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+Great effort today, you! You invested a total of 5.3 hours into your work, primarily focusing on 'brave.exe' and 'cs2.exe'. It's impressive to see your dedication towards 'companion cube' and 'Counter-Strike 2'.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 21:25:58
+Active time: 5.3 hours
+Total sessions: 1015
+Top applications:
+brave.exe (1.8h) - 中建宸园-170户型-0719 www.kujiale.com - Brave, (34 封私信 / 11 条消息) 大家选爱格板做全屋定制，仅仅是面板爱格...
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (1.0h) - 微信, 群聊的聊天记录
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.3h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+Great job on investing 5.3 hours into your work today, especially focusing on companion cube and brave.exe. Keep up the good work! Remember, progress is a journey, not a destination. Hello there! It's wonderful to see you engaged in Counter-Strike 2 for a while. Perhaps consider scheduling gaming sessions during leisure time to maintain balance. Noticing that you had 1015 switches and an average session of only 30 seconds might suggest the need for longer, more focused work periods. Try taking shorter breaks between sessions to build momentum.
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 21:27:05
+Active time: 5.4 hours
+Total sessions: 1016
+Top applications:
+brave.exe (1.8h) - 中建宸园-170户型-0719 www.kujiale.com - Brave, (34 封私信 / 11 条消息) 大家选爱格板做全屋定制，仅仅是面板爱格...
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (1.0h) - 微信, 群聊的聊天记录
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.3h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+Great effort today, you! 🌟 You dedicated 5.4 hours to your projects, with a focus score of 3%. Kudos on spending time on 'brave.exe' and 'cs2.exe', which accounted for about half of your active time. It's fantastic that you're making progress on your companion cube app!
+
+================================================================================
+Date: 2025-07-30
+Generated at: 2025-07-30 21:27:15
+Active time: 5.4 hours
+Total sessions: 1016
+Top applications:
+brave.exe (1.8h) - 中建宸园-170户型-0719 www.kujiale.com - Brave, (34 封私信 / 11 条消息) 大家选爱格板做全屋定制，仅仅是面板爱格...
+cs2.exe (1.2h) - Counter-Strike 2, 反恐精英：全球攻势
+Weixin.exe (1.0h) - 微信, 群聊的聊天记录
+RockboxUtility.exe (0.3h) - 安装主题, 进程
+Code.exe (0.3h) - lib.rs - cc - Visual Studio Code, ● lib.rs - cc - Visual Studio Code
+
+Summary:
+You've invested a total of 5.4 hours in your projects today, with the majority of time spent on companion cube and Counter-Strike 2. It's great to see you making progress on your app!
+
+================================================================================
+Date: 2025-08-11
+Generated at: 2025-08-11 12:53:48
+Active time: 0.5 hours
+Total sessions: 111
+Top applications:
+brave.exe (0.3h) - 撞脸习近平，歌唱家刘克清：你知道我这7年是怎么过的吗？ - YouTube..., YouTube www.youtube.com - Brave
+Code.exe (0.1h) - CLAUDE.md - cc - Visual Studio Code, desc.txt - cc - Visual Studio Code
+WindowsTerminal.exe (0.0h) - Windows PowerShell
+explorer.exe (0.0h) - 
+steamwebhelper.exe (0.0h) - Steam, Friends List
+
+Summary:
+
+
+Today's Activity: 0.5 hours active, 12 applications used. Top focus: brave.exe. Productivity sessions: 111.
+
+================================================================================
+Date: 2025-08-11
+Generated at: 2025-08-11 12:55:20
+Active time: 0.6 hours
+Total sessions: 116
+Top applications:
+brave.exe (0.3h) - 撞脸习近平，歌唱家刘克清：你知道我这7年是怎么过的吗？ - YouTube..., YouTube www.youtube.com - Brave
+Code.exe (0.1h) - CLAUDE.md - cc - Visual Studio Code, desc.txt - cc - Visual Studio Code
+WindowsTerminal.exe (0.0h) - Windows PowerShell
+app.exe (0.0h) - Companion Cube
+explorer.exe (0.0h) - 
+
+Summary:
+You spent 0.6 hours actively working on your Companion Cube project today, engaging with brave.exe and code.exe. It's great to see you making progress on your app.
+
+================================================================================
+Date: 2025-08-11
+Generated at: 2025-08-11 12:56:53
+Active time: 0.6 hours
+Total sessions: 124
+Top applications:
+brave.exe (0.3h) - 撞脸习近平，歌唱家刘克清：你知道我这7年是怎么过的吗？ - YouTube..., YouTube www.youtube.com - Brave
+Code.exe (0.1h) - CLAUDE.md - cc - Visual Studio Code, desc.txt - cc - Visual Studio Code
+app.exe (0.0h) - Companion Cube
+WindowsTerminal.exe (0.0h) - Windows PowerShell
+explorer.exe (0.0h) - 
+
+Summary:
+"Hello! I see you've been working on your companion cube project today, investing a total of 0.6 hours (excluding breaks). It's great to see you taking steps towards your goal!
+
+Your focus score was 3%, which is lower than we aim for. Let's try to increase this by setting specific, manageable goals for each work session and minimizing distractions. Remember, quality over quantity!
+
+Lastly, let's strive for a better work-life balance. It's important to take regular breaks and ensure you have time for relaxation and self-care. Keep up the good work!"
+
+================================================================================

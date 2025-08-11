@@ -712,6 +712,7 @@ impl ActivityWatchClient {
 struct AppState {
     current_mode: Arc<Mutex<String>>,
     last_summary_time: Arc<Mutex<HashMap<String, DateTime<Utc>>>>,
+    latest_hourly_summary: Arc<Mutex<Option<HourlySummary>>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -735,6 +736,7 @@ impl AppState {
         Self {
             current_mode: Arc::new(Mutex::new(saved_mode)),
             last_summary_time: Arc::new(Mutex::new(HashMap::new())),
+            latest_hourly_summary: Arc::new(Mutex::new(None)),
         }
     }
     
@@ -769,7 +771,7 @@ struct LogMessage {
     timestamp: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct HourlySummary {
     summary: String,
     focus_score: u32,
@@ -859,14 +861,40 @@ fn get_mode_interval_minutes(mode: &str) -> u32 {
 
 fn should_run_summary(mode: &str, last_run: Option<DateTime<Utc>>) -> bool {
     let now = Utc::now();
-    let interval_minutes = get_mode_interval_minutes(mode);
     
-    match last_run {
-        Some(last) => {
-            let elapsed = now.signed_duration_since(last);
-            elapsed.num_minutes() >= interval_minutes as i64
+    // First check if we already ran in this minute
+    if let Some(last) = last_run {
+        let elapsed_seconds = now.signed_duration_since(last).num_seconds();
+        if elapsed_seconds < 60 {
+            return false; // Already ran in this minute
         }
-        None => true, // First run
+    }
+    
+    // Check if we're at the appropriate time mark
+    match mode {
+        "ghost" | "chill" => {
+            // Run at whole hours (XX:00)
+            now.minute() == 0
+        }
+        "study_buddy" => {
+            // Run every 5 minutes (XX:00, XX:05, XX:10, etc.)
+            now.minute() % 5 == 0
+        }
+        "coach" => {
+            // Run every 15 minutes (XX:00, XX:15, XX:30, XX:45)
+            now.minute() % 15 == 0
+        }
+        _ => {
+            // Default: check elapsed time
+            let interval_minutes = get_mode_interval_minutes(mode);
+            match last_run {
+                Some(last) => {
+                    let elapsed = now.signed_duration_since(last);
+                    elapsed.num_minutes() >= interval_minutes as i64
+                }
+                None => true,
+            }
+        }
     }
 }
 
@@ -891,7 +919,7 @@ async fn handle_mode_specific_logic(app: &AppHandle, mode: &str, state: &AppStat
         times.insert(mode.to_string(), now);
     }
     
-    send_log(app, "info", &format!("Running mode-specific logic for {}", mode));
+    send_log(app, "info", &format!("Running {} mode logic at {:02}:{:02}", mode, now.hour(), now.minute()));
     
     match mode {
         "ghost" => handle_ghost_mode(app).await,
@@ -913,12 +941,51 @@ async fn handle_ghost_mode(app: &AppHandle) -> Result<(), String> {
     
     let (summary_text, focus_score, current_state) = generate_new_hourly_summary(now, &summary_file).await?;
     
-    // Save to file with mode info
-    let entry = format!("---\n{}\n{}\n{}\n{}\nMode: ghost\n", 
-                       now.hour(), summary_text, focus_score, current_state);
-    std::fs::write(&summary_file, entry).map_err(|e| e.to_string())?;
+    // Save to JSON file for ghost mode
+    let ghost_file = data_dir.join("ghost_summaries.json");
+    let mut summaries: Vec<serde_json::Value> = if ghost_file.exists() {
+        let content = std::fs::read_to_string(&ghost_file).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     
-    send_log(app, "info", "Ghost mode summary saved");
+    summaries.push(serde_json::json!({
+        "timestamp": now.format("%Y-%m-%d %H:%M:%S").to_string(),
+        "hour": now.hour(),
+        "mode": "ghost",
+        "summary": summary_text,
+        "focus_score": focus_score,
+        "state": current_state
+    }));
+    
+    std::fs::write(&ghost_file, serde_json::to_string_pretty(&summaries).unwrap())
+        .map_err(|e| e.to_string())?;
+    
+    // Emit event to update frontend
+    let hourly_summary = HourlySummary {
+        summary: summary_text,
+        focus_score,
+        last_updated: now.format("%H:%M").to_string(),
+        period: format!("{}-{}", 
+                       (now - chrono::Duration::minutes(60)).format("%H:%M"),
+                       now.format("%H:%M")),
+        current_state,
+    };
+    
+    send_log(app, "debug", &format!("Emitting hourly_summary_updated: {:?}", hourly_summary));
+    
+    // Store in app state
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut latest) = state.latest_hourly_summary.lock() {
+            *latest = Some(hourly_summary.clone());
+        }
+    }
+    
+    app.emit("hourly_summary_updated", &hourly_summary)
+        .map_err(|e| format!("Failed to emit summary update: {}", e))?;
+    
+    send_log(app, "info", "Ghost mode summary saved and UI updated");
     Ok(())
 }
 
@@ -933,9 +1000,9 @@ async fn handle_chill_mode(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     
-    // Generate activity summary with chill-specific analysis
+    // Generate activity summary using the same logic as manual generation
     let now = chrono::Local::now();
-    let (summary_text, focus_score, current_state) = generate_chill_mode_summary(&aw_client, now).await?;
+    let (summary_text, focus_score, current_state) = generate_ai_summary(&aw_client, now).await?;
     
     // Check if user needs a nudge
     if current_state.contains("needs_nudge") || current_state.contains("distracted") {
@@ -943,14 +1010,31 @@ async fn handle_chill_mode(app: &AppHandle) -> Result<(), String> {
         send_notification(app, "Time for a change?", &config.chill_notification_prompt).await;
     }
     
-    // Save summary
-    let data_dir = std::path::PathBuf::from("data");
-    std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
-    let summary_file = data_dir.join("hourly_summary.txt");
+    // Emit event to update frontend
+    let hourly_summary = HourlySummary {
+        summary: summary_text.clone(),
+        focus_score,
+        last_updated: now.format("%H:%M").to_string(),
+        period: format!("{}-{}", 
+                       (now - chrono::Duration::minutes(60)).format("%H:%M"),
+                       now.format("%H:%M")),
+        current_state: current_state.clone(),
+    };
     
-    let entry = format!("---\n{}\n{}\n{}\n{}\nMode: chill\n", 
-                       now.hour(), summary_text, focus_score, current_state);
-    std::fs::write(&summary_file, entry).map_err(|e| e.to_string())?;
+    send_log(app, "debug", &format!("Emitting hourly_summary_updated for chill mode: {:?}", hourly_summary));
+    
+    // Store in app state
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut latest) = state.latest_hourly_summary.lock() {
+            *latest = Some(hourly_summary.clone());
+        }
+    }
+    
+    app.emit("hourly_summary_updated", &hourly_summary)
+        .map_err(|e| format!("Failed to emit summary update: {}", e))?;
+    
+    // Log the summary
+    send_log(app, "info", &format!("Chill mode summary: {} (state: {})", summary_text, current_state));
     
     send_log(app, "info", "Chill mode check completed");
     Ok(())
@@ -974,13 +1058,17 @@ async fn handle_study_mode(app: &AppHandle) -> Result<(), String> {
         config.study_focus.clone()
     };
     
-    // Generate study-specific summary
+    // Generate study-focused summary using study context
     let now = chrono::Local::now();
-    let (summary_text, focus_score, current_state) = generate_study_mode_summary(&aw_client, now, &study_focus).await?;
+    let (summary_text, focus_score, current_state) = generate_study_focused_summary(&aw_client, now, &study_focus).await?;
     
     // Check if user is distracted from studying
-    if current_state.contains("distracted") || current_state.contains("gaming") || current_state.contains("youtube") {
+    if current_state == "needs_nudge" || current_state.contains("distracted") {
         send_notification(app, "Study Focus", &config.study_notification_prompt).await;
+        send_log(app, "info", &format!("Study mode: User distracted, sending nudge. State: {}", current_state));
+    } else if current_state == "flow" || current_state == "working" {
+        // User is actively studying, do not disturb
+        send_log(app, "info", "Study mode: User actively studying, no notification sent");
     }
     
     // Save summary
@@ -991,6 +1079,27 @@ async fn handle_study_mode(app: &AppHandle) -> Result<(), String> {
     let entry = format!("---\n{}\n{}\n{}\n{}\nMode: study\nFocus: {}\n", 
                        now.format("%H:%M"), summary_text, focus_score, current_state, study_focus);
     std::fs::write(&summary_file, entry).map_err(|e| e.to_string())?;
+    
+    // Emit event to update frontend
+    let hourly_summary = HourlySummary {
+        summary: summary_text.clone(),
+        focus_score,
+        last_updated: now.format("%H:%M").to_string(),
+        period: format!("{}-{}", 
+                       (now - chrono::Duration::minutes(5)).format("%H:%M"),
+                       now.format("%H:%M")),
+        current_state: current_state.clone(),
+    };
+    
+    // Store in app state
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut latest) = state.latest_hourly_summary.lock() {
+            *latest = Some(hourly_summary.clone());
+        }
+    }
+    
+    app.emit("hourly_summary_updated", &hourly_summary)
+        .map_err(|e| format!("Failed to emit summary update: {}", e))?;
     
     send_log(app, "info", "Study mode check completed");
     Ok(())
@@ -1014,8 +1123,11 @@ async fn handle_coach_mode(app: &AppHandle) -> Result<(), String> {
         config.coach_task.clone()
     };
     
-    // Generate coach-specific summary and todo list
+    // Generate comprehensive activity summary like manual generation
     let now = chrono::Local::now();
+    let (summary_text, focus_score, current_state) = generate_ai_summary(&aw_client, now).await?;
+    
+    // Also generate todo list for coach mode
     let todo_list = generate_coach_todo_list(&aw_client, now, &coach_task).await?;
     
     // Save todo list
@@ -1028,6 +1140,27 @@ async fn handle_coach_mode(app: &AppHandle) -> Result<(), String> {
     
     // Send notification to check todos
     send_notification(app, "Coach Check-in", &config.coach_notification_prompt).await;
+    
+    // Emit event to update frontend with comprehensive summary
+    let hourly_summary = HourlySummary {
+        summary: summary_text,
+        focus_score,
+        last_updated: now.format("%H:%M").to_string(),
+        period: format!("{}-{}", 
+                       (now - chrono::Duration::minutes(15)).format("%H:%M"),
+                       now.format("%H:%M")),
+        current_state,
+    };
+    
+    // Store in app state
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut latest) = state.latest_hourly_summary.lock() {
+            *latest = Some(hourly_summary.clone());
+        }
+    }
+    
+    app.emit("hourly_summary_updated", &hourly_summary)
+        .map_err(|e| format!("Failed to emit summary update: {}", e))?;
     
     send_log(app, "info", "Coach mode todo list generated");
     Ok(())
@@ -1090,6 +1223,29 @@ async fn set_mode(mode: String, state: State<'_, AppState>, app: AppHandle) -> R
     // Notify frontend
     app.emit("mode_changed", &mode).map_err(|e| e.to_string())?;
     
+    // Generate immediate summary when switching to study mode
+    if mode == "study_buddy" {
+        send_log(&app, "info", "Study mode activated - generating immediate summary");
+        let app_clone = app.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_study_mode(&app_clone).await {
+                send_log(&app_clone, "error", &format!("Failed to generate study mode summary: {}", e));
+            }
+        });
+    }
+    
+    // Clear last run time to ensure immediate execution
+    {
+        let mut times = state.last_summary_time.lock().map_err(|_| "Failed to acquire timing lock")?;
+        times.remove(&mode);
+    }
+    
+    // Generate summary immediately for the new mode
+    send_log(&app, "info", "Generating initial summary for new mode");
+    if let Err(e) = handle_mode_specific_logic(&app, &mode, &state).await {
+        send_log(&app, "error", &format!("Failed to generate initial summary: {}", e));
+    }
+    
     send_log(&app, "debug", &format!("Mode switch to {} completed and saved", mode));
     
     Ok(())
@@ -1098,6 +1254,13 @@ async fn set_mode(mode: String, state: State<'_, AppState>, app: AppHandle) -> R
 #[tauri::command]
 async fn get_hourly_summary(state: State<'_, AppState>) -> Result<HourlySummary, String> {
     let now = chrono::Local::now();
+    
+    // First check if we have a recent summary in memory
+    if let Ok(latest) = state.latest_hourly_summary.lock() {
+        if let Some(summary) = latest.as_ref() {
+            return Ok(summary.clone());
+        }
+    }
     
     // Get current mode
     let current_mode = {
@@ -1204,12 +1367,24 @@ async fn generate_chill_mode_summary(aw_client: &ActivityWatchClient, now: chron
     
     // Analyze for excessive gaming/entertainment
     let prompt = format!(
-        "Analyze this recent activity for excessive gaming/entertainment in chill mode. Focus on detecting gaming, YouTube, streaming, or other fun activities that might be getting out of hand.
+        "Analyze chill mode activity for healthy balance vs excessive entertainment. Return JSON only.
 
-Recent activity data:
+Recent activity:
 {}
 
-Respond with JSON only: {{\"summary\": \"brief analysis of activity patterns\", \"focus_score\": 0-100, \"state\": \"flow/working/needs_nudge/afk\"}}",
+CHILL MODE RULES:
+- Flow: Creative/learning activities, active engagement
+- Working: Light productivity mixed with breaks
+- Needs_nudge: Excessive gaming (>2hrs), passive bingeing, social media spirals
+- AFK: User away
+
+Evaluate:
+1. Time spent on each activity type
+2. Active engagement vs passive consumption
+3. Variety vs hyperfocus on one activity
+4. Signs of healthy relaxation vs avoidance
+
+Return JSON: {{\"summary\": \"brief analysis of leisure balance\", \"focus_score\": 0-100, \"state\": \"flow/working/needs_nudge/afk\"}}",
         activity_data
     );
     
@@ -1244,13 +1419,24 @@ async fn generate_study_mode_summary(aw_client: &ActivityWatchClient, now: chron
     };
     
     let prompt = format!(
-        "Analyze if user is focused on studying for: '{}'. 
+        "Analyze study focus for: '{}'. Return JSON only.
 
-Recent activity data:
+Recent activity:
 {}
 
-Look for study-related apps, educational content, or distractions like games/social media. 
-Respond with JSON only: {{\"summary\": \"brief analysis of study focus\", \"focus_score\": 0-100, \"state\": \"focused/distracted/gaming/youtube\"}}",
+STUDY MODE ASSESSMENT:
+- Focused: Study materials, research tools, note-taking apps aligned with objective
+- Working: General productivity that may support learning
+- Distracted: Off-topic browsing, organization tasks, mild diversions
+- Gaming: High-distraction entertainment that competes with study focus
+
+Evaluate:
+1. Activity alignment with study objective
+2. Deep focus vs fragmented attention
+3. Learning-appropriate tools vs passive consumption
+4. Signs of productive study vs procrastination
+
+Return JSON: {{\"summary\": \"analysis of study focus with guidance\", \"focus_score\": 0-100, \"state\": \"focused/working/distracted/gaming\"}}",
         focus_context, activity_data
     );
     
@@ -1285,13 +1471,30 @@ async fn generate_coach_todo_list(aw_client: &ActivityWatchClient, now: chrono::
     };
     
     let prompt = format!(
-        "Based on recent activity and the goal '{}', create 3-5 actionable todo items.
+        "Generate 3-5 actionable todos based on goal: '{}' and recent activity. Return JSON only.
 
-Recent activity data:
+Recent activity:
 {}
 
-Create practical, specific todo items based on what the user has been working on.
-Respond with JSON only: {{\"todos\": [{{\"text\": \"specific actionable todo item\", \"priority\": \"high/medium/low\"}}]}}",
+TODO GUIDELINES:
+- Specific: Clear actions, not vague goals
+- Achievable: 15-45 minute tasks
+- Contextual: Match current tools and workflow
+- Progressive: Each task sets up the next
+- ADHD-friendly: Mix of challenging and easy wins
+
+PRIORITIES:
+- High: Critical path, momentum builders, blocking issues
+- Medium: Important but flexible timing
+- Low: Nice-to-have, administrative tasks
+
+Analyze:
+1. Current work patterns and tools in use
+2. Natural next steps from recent activity
+3. Balance between challenge and achievability
+4. Alignment with stated goal
+
+Return JSON: {{\"todos\": [{{\"text\": \"specific actionable todo item\", \"priority\": \"high/medium/low\"}}]}}",
         task_context, activity_data
     );
     
@@ -1372,35 +1575,23 @@ async fn generate_mode_specific_hourly_summary(mode: &str, now: chrono::DateTime
     let ollama_available = test_ollama_connection().await;
     
     let (summary_text, focus_score, current_state) = if aw_connected && ollama_available {
-        // Load user config for mode-specific context
-        let config = load_user_config_internal().await.unwrap_or_default();
-        
+        // Use mode-specific context for analysis
         match mode {
-            "ghost" => {
-                // Ghost mode: Silent monitoring, basic summary
-                let activity_data = aw_client.get_activity_data().await?;
-                let summary = format!("Ghost mode monitoring: {} activity entries logged", 
-                                    activity_data.lines().count());
-                (summary, calculate_time_based_focus_score(now.hour()), "monitoring".to_string())
-            },
-            "chill" => {
-                // Chill mode: Look for excessive entertainment
-                generate_chill_mode_summary(&aw_client, now).await?
-            },
             "study_buddy" => {
-                // Study mode: Focus on study progress
-                generate_study_mode_summary(&aw_client, now, &config.study_focus).await?
-            },
-            "coach" => {
-                // Coach mode: Generate todo list and progress summary
-                let todo_list = generate_coach_todo_list(&aw_client, now, &config.coach_task).await?;
-                let summary = format!("Coach mode: Generated {} todo items for: {}", 
-                                    todo_list.todos.len(), 
-                                    todo_list.context);
-                (summary, calculate_time_based_focus_score(now.hour()), "coaching".to_string())
+                // Load study focus context
+                let config = load_user_config_internal().await.unwrap_or_default();
+                let study_focus = if config.study_focus.is_empty() {
+                    "general studying".to_string()
+                } else {
+                    config.study_focus.clone()
+                };
+                match generate_study_focused_summary(&aw_client, now, &study_focus).await {
+                    Ok(result) => result,
+                    Err(_) => generate_time_based_summary(now)
+                }
             },
             _ => {
-                // Default to generic summary
+                // All other modes use general context
                 match generate_ai_summary(&aw_client, now).await {
                     Ok(result) => result,
                     Err(_) => generate_time_based_summary(now)
@@ -1944,28 +2135,37 @@ impl EventProcessor {
             .unwrap_or(false);
         
         format!(
-            r#"Analyze ADHD productivity. Return ONLY valid JSON. No other text before or after JSON.
+            r#"Analyze ADHD productivity state. Return ONLY JSON, no other text.
 
-CONTEXT: {}
-STATUS: {} | 5min: {}m active, {} switches, {} apps | 30min: {}m active, {} switches, {} apps
+USER CONTEXT: {}
+STATUS: {} | Recent: {}m active, {} switches, {} apps | Longer: {}m active, {} switches, {} apps
 
-RECENT:
+RECENT ACTIVITY:
 {}
 
-SWITCHES:
+CONTEXT SWITCHES:
 {}
 
-RULES: AFK="afk" | Code/IDE="flow"/"working" | Comms="working" | Games="needs_nudge" | 5+ switches="needs_nudge" | 15+min="flow"
+ANALYSIS RULES:
+- Flow: 15+ min single app, minimal switches
+- Working: Mixed productive apps, <5 switches
+- Needs_nudge: 5+ switches OR games/entertainment
+- AFK: User away
 
-IMPORTANT: Return ONLY the JSON object below. Do not include any prefixes like "Activity detected:" or any other text.
+Evaluate:
+1. App types and session lengths
+2. Switch frequency patterns
+3. Alignment with user context
+4. Trend: improving/declining/stable focus
 
+Return JSON only:
 {{
  "current_state": "flow|working|needs_nudge|afk",
  "focus_trend": "maintaining_focus|entering_focus|losing_focus|variable|none", 
  "distraction_trend": "low|moderate|increasing|decreasing|high",
  "confidence": "high|medium|low",
- "primary_activity": "brief description (NO emojis or prefixes)",
- "reasoning": "Clear 2-3 sentence explanation without emojis or formatting"
+ "primary_activity": "Brief description of main activity",
+ "reasoning": "Clear explanation of state assessment"
 }}"#,
             user_context,
             if is_currently_afk { "AFK" } else { "Active" },
@@ -1989,10 +2189,11 @@ IMPORTANT: Return ONLY the JSON object below. Do not include any prefixes like "
         let mut formatted = Vec::new();
         for event in timeline.iter().take(10) {
             let title_part = if event.title.is_empty() { "" } else { &format!(" → {}", event.title) };
+            let (app_name, _exe_name) = extract_app_and_exe_name(&event.name);
             formatted.push(format!(
                 "• {} - {}{} ({}min)",
                 event.timestamp.format("%H:%M"),
-                event.name,
+                app_name,
                 title_part,
                 event.duration_minutes
             ));
@@ -2008,10 +2209,12 @@ IMPORTANT: Return ONLY the JSON object below. Do not include any prefixes like "
         
         let mut formatted = Vec::new();
         for switch in switches.iter().take(5) {
+            let (from_app, _from_exe) = extract_app_and_exe_name(&switch.from_app);
+            let (to_app, _to_exe) = extract_app_and_exe_name(&switch.to_app);
             formatted.push(format!(
-                "• {} → {} at {}",
-                switch.from_app,
-                switch.to_app,
+                "{} → {} at {}",
+                from_app,
+                to_app,
                 switch.timestamp.format("%H:%M")
             ));
         }
@@ -2209,26 +2412,25 @@ async fn generate_daily_summary(aw_client: &ActivityWatchClient) -> Result<Daily
     
     // Create comprehensive daily summary prompt
     let prompt = format!(
-        r#"Write a plain text summary of today's activity. NO JSON, NO formatting, just plain text.
+        r#"Create an empathetic daily productivity summary. Address user as 'you'. Plain text only, no JSON or formatting.
 
-Date: {}
-User context: {}
-Active hours: {:.1}h (AFK time excluded)
-App switches: {}
-Average session: {:.1} minutes
-Focus score: {:.0}%
+USER CONTEXT: {}
+DATE: {}
+ACTIVE TIME: {:.1}h (excluding breaks)
+SWITCHES: {} | AVG SESSION: {:.1}min | FOCUS SCORE: {:.0}%
+WORK PERIOD: {} to {} | TOTAL APPS: {}
 
-Top apps:
+TOP APPLICATIONS:
 {}
 
-Working hours: {} to {}
-Total apps used: {}
+ANALYSIS GUIDELINES:
+- Acknowledge main activities and time investment
+- Identify positive patterns or achievements
+- Gently suggest improvement areas
+- Consider focus quality vs quantity
+- Assess work-life balance
 
-Write exactly 2 sentences:
-1. What apps were used most today
-2. How focused/productive the session was
-
-Keep it under 100 words total. Plain text only. Tone should be Empathetic."#,
+Write 2-3 supportive sentences under 100 words. Be encouraging about progress while noting areas for optimization. Focus on actionable insights rather than judgment."#,
         now.format("%A, %B %d, %Y"),
         user_config.user_context,
         active_hours,
@@ -2360,7 +2562,15 @@ Keep it under 100 words total. Plain text only. Tone should be Empathetic."#,
 async fn generate_ai_summary(aw_client: &ActivityWatchClient, now: chrono::DateTime<chrono::Local>) -> Result<(String, u32, String), String> {
     // Load user configuration
     let user_config = load_user_config_internal().await.unwrap_or_default();
-    
+    generate_ai_summary_with_context(aw_client, now, &user_config.user_context).await
+}
+
+async fn generate_study_focused_summary(aw_client: &ActivityWatchClient, now: chrono::DateTime<chrono::Local>, study_focus: &str) -> Result<(String, u32, String), String> {
+    let study_context = format!("Currently studying: {}. Focus on study-related activities, educational content, and potential distractions from this learning objective.", study_focus);
+    generate_ai_summary_with_context(aw_client, now, &study_context).await
+}
+
+async fn generate_ai_summary_with_context(aw_client: &ActivityWatchClient, now: chrono::DateTime<chrono::Local>, context: &str) -> Result<(String, u32, String), String> {
     // Initialize event processor
     let processor = EventProcessor::new();
     
@@ -2376,8 +2586,8 @@ async fn generate_ai_summary(aw_client: &ActivityWatchClient, now: chrono::DateT
     // Prepare raw data for LLM analysis using the proper EventProcessor method
     let raw_data = processor.prepare_raw_data_for_llm(&multi_timeframe_data);
     
-    // Create the comprehensive state analysis prompt
-    let prompt = processor.create_state_analysis_prompt(&raw_data, &user_config.user_context);
+    // Create the comprehensive state analysis prompt with custom context
+    let prompt = processor.create_state_analysis_prompt(&raw_data, context);
     
     // Call Ollama API with the proper prompt
     let ollama_response = call_ollama_api(&prompt).await?;
@@ -2484,6 +2694,53 @@ fn extract_field(text: &str, field_name: &str) -> Option<String> {
 
 // Removed redundant fetch_activity_data function - now using ActivityWatchClient::get_multi_timeframe_data() and EventProcessor::prepare_raw_data_for_llm()
 
+
+// Helper function to extract clean app name and exe name from full path
+fn extract_app_and_exe_name(full_path: &str) -> (String, String) {
+    let path = full_path.trim();
+    
+    // Handle common patterns
+    if path.is_empty() {
+        return ("Unknown".to_string(), "unknown".to_string());
+    }
+    
+    // Extract just the filename from the path
+    let filename = if path.contains('\\') {
+        path.split('\\').last().unwrap_or(path)
+    } else if path.contains('/') {
+        path.split('/').last().unwrap_or(path)
+    } else {
+        path
+    };
+    
+    // Remove .exe extension if present
+    let app_name = if filename.to_lowercase().ends_with(".exe") {
+        &filename[..filename.len() - 4]
+    } else {
+        filename
+    };
+    
+    // Create a clean display name
+    let clean_name = match app_name.to_lowercase().as_str() {
+        "chrome" => "Google Chrome",
+        "firefox" => "Firefox",
+        "code" => "VS Code",
+        "devenv" => "Visual Studio",
+        "notepad++" => "Notepad++",
+        "slack" => "Slack",
+        "discord" => "Discord",
+        "teams" => "Microsoft Teams",
+        "outlook" => "Outlook",
+        "spotify" => "Spotify",
+        "explorer" => "File Explorer",
+        "cmd" => "Command Prompt",
+        "powershell" => "PowerShell",
+        "windowsterminal" => "Windows Terminal",
+        _ => app_name,
+    };
+    
+    (clean_name.to_string(), filename.to_string())
+}
 
 // Find bucket by exact prefix pattern (e.g., "aw-watcher-window" matches "aw-watcher-window_HarryYu-Desktop")
 fn find_bucket_by_exact_prefix(buckets: &HashMap<String, serde_json::Value>, prefix: &str) -> Option<String> {
@@ -2592,10 +2849,14 @@ async fn call_ollama_api(prompt: &str) -> Result<String, String> {
     let client = get_ollama_client();
     let config = load_user_config_internal().await.unwrap_or_default();
     
+    eprintln!("=== Sending prompt to Ollama ===");
+    eprintln!("Prompt length: {} characters", prompt.len());
+    eprintln!("Prompt preview:\n{}", prompt.chars().take(500).collect::<String>());
+    
     let payload = serde_json::json!({
         "model": "mistral",
         "prompt": prompt,
-        "system": "You are a supportive ADHD productivity assistant. You MUST respond with ONLY valid JSON format, no other text or commentary. Be encouraging and provide actionable insights within the JSON structure.",
+        "system": "You are a supportive ADHD productivity assistant. You MUST respond with ONLY valid JSON format, no other text or commentary. Be encouraging and provide actionable insights within the JSON structure. Address the user as you",
         "stream": false,
         "options": {
             "temperature": 0.3,
@@ -2619,6 +2880,9 @@ async fn call_ollama_api(prompt: &str) -> Result<String, String> {
     
     let response_text = response.text().await
         .map_err(|e| format!("Failed to read Ollama response: {}", e))?;
+    
+    eprintln!("=== Ollama Response ===");
+    eprintln!("Response length: {} characters", response_text.len());
     
     // Parse Ollama's response format
     match serde_json::from_str::<serde_json::Value>(&response_text) {
@@ -2690,8 +2954,7 @@ async fn generate_hourly_summary(app: AppHandle) -> Result<HourlySummary, String
     
     send_log(&app, "info", "Hourly summary generated successfully!");
     
-    // Return the HourlySummary object directly
-    Ok(HourlySummary {
+    let hourly_summary = HourlySummary {
         summary: summary_text,
         focus_score,
         last_updated: now.format("%H:%M").to_string(),
@@ -2699,7 +2962,21 @@ async fn generate_hourly_summary(app: AppHandle) -> Result<HourlySummary, String
                        (now - chrono::Duration::minutes(30)).format("%H:%M"),
                        now.format("%H:%M")),
         current_state,
-    })
+    };
+    
+    // Store in app state and emit event
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut latest) = state.latest_hourly_summary.lock() {
+            *latest = Some(hourly_summary.clone());
+        }
+    }
+    
+    // Emit event to update frontend
+    app.emit("hourly_summary_updated", &hourly_summary)
+        .map_err(|e| format!("Failed to emit summary update: {}", e))?;
+    
+    // Return the HourlySummary object directly
+    Ok(hourly_summary)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -3007,7 +3284,23 @@ async fn classify_activities(app: AppHandle, _state: State<'_, AppState>) -> Res
         .collect();
     
     let prompt = format!(
-        "Classify apps based on window titles into work/communication/distraction categories. Return JSON only.\n\nActivity:\n{}\n\nReturn: {{\"work\":60,\"communication\":25,\"distraction\":15}}",
+        "Classify app usage into work/communication/distraction percentages. Return JSON only.
+
+Application usage:
+{}
+
+CATEGORIES:
+Work: IDEs, editors, terminals, design tools, research browsers, productivity apps
+Communication: Slack, Teams, Discord (work), email, video calls, collaboration tools
+Distraction: Games, entertainment, social media, non-educational YouTube, shopping
+
+ANALYSIS RULES:
+1. Consider window titles for context (work Discord vs gaming Discord)
+2. Weight by time spent - longer sessions influence percentages more
+3. Educational content = work, entertainment content = distraction
+4. Productive browser usage = work, casual browsing = distraction
+
+Return JSON with percentages that sum to 100: {{\"work\":60,\"communication\":25,\"distraction\":15}}",
         app_list.join("\n")
     );
     
@@ -3113,17 +3406,32 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                 send_log(app, "error", &format!("Failed to emit mode change: {}", e));
             }
             
-            // Update app state
+            // Update app state and trigger mode logic
             if let Some(state) = app.try_state::<AppState>() {
+                // Update mode
                 if let Ok(mut current_mode) = state.current_mode.lock() {
                     *current_mode = mode.clone();
                 }
-            }
-            
-            if let Err(e) = update_tray_menu(app, &mode) {
-                send_log(app, "error", &format!("Failed to update tray menu: {}", e));
-            } else {
-                send_log(app, "debug", "Tray menu updated successfully");
+                
+                // Save mode to persistent storage
+                if let Err(e) = AppState::save_mode(&mode) {
+                    send_log(app, "error", &format!("Failed to save mode: {}", e));
+                }
+                
+                // Clear last run time to ensure immediate execution
+                if let Ok(mut times) = state.last_summary_time.lock() {
+                    times.remove(&mode);
+                }
+                
+                // Update tray menu
+                if let Err(e) = update_tray_menu(app, &mode) {
+                    send_log(app, "error", &format!("Failed to update tray menu: {}", e));
+                } else {
+                    send_log(app, "debug", "Tray menu updated successfully");
+                }
+                
+                // Note: Initial summary will be generated by the background timer on the next minute tick
+                send_log(app, "info", "Mode switched, initial summary will be generated by background timer");
             }
         }
         "check" => {
@@ -3215,16 +3523,6 @@ async fn update_coach_todo(todo_id: String, completed: bool) -> Result<(), Strin
     }
 }
 
-#[tauri::command]
-async fn trigger_mode_logic(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let current_mode = {
-        let mode = state.current_mode.lock().map_err(|_| "Failed to acquire mode lock")?;
-        mode.clone()
-    };
-    
-    handle_mode_specific_logic(&app, &current_mode, &state).await?;
-    Ok(())
-}
 
 #[tauri::command]
 async fn install_ollama(app: AppHandle) -> Result<String, String> {
@@ -3426,7 +3724,6 @@ pub fn run() {
             classify_activities,
             get_coach_todos,
             update_coach_todo,
-            trigger_mode_logic,
             install_ollama,
             install_activitywatch,
             test_notification
@@ -3486,9 +3783,53 @@ pub fn run() {
             send_log(&app_handle, "info", "Companion Cube initialization complete");
             send_log(&app_handle, "info", &format!("Application running in {} mode", current_mode));
             
-            // Note: Background timer for mode-specific logic will be triggered manually via trigger_mode_logic command
-            // This avoids runtime complexity and allows for more controlled execution
-            send_log(&app_handle, "info", "Mode-specific logic available via trigger_mode_logic command");
+            // Start background timer for mode-specific logic
+            let app_handle_timer = app_handle.clone();
+            let current_mode_arc = app.state::<AppState>().current_mode.clone();
+            let last_summary_arc = app.state::<AppState>().last_summary_time.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60)); // Check every minute
+                // Set to tick immediately at the start of each period
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                
+                send_log(&app_handle_timer, "info", "Background timer initialized, checking every minute");
+                
+                loop {
+                    interval.tick().await;
+                    
+                    let now = chrono::Utc::now();
+                    
+                    // Get current mode
+                    let current_mode = {
+                        if let Ok(mode) = current_mode_arc.lock() {
+                            mode.clone()
+                        } else {
+                            continue;
+                        }
+                    };
+                    
+                    // Log the check (only in debug mode to avoid spam)
+                    if now.second() < 5 {  // Only log near the start of the minute
+                        send_log(&app_handle_timer, "debug", 
+                            &format!("Timer check at {:02}:{:02} for {} mode", 
+                                now.minute(), now.second(), current_mode));
+                    }
+                    
+                    // Create a temporary AppState for the check
+                    let temp_state = AppState {
+                        current_mode: current_mode_arc.clone(),
+                        last_summary_time: last_summary_arc.clone(),
+                        latest_hourly_summary: Arc::new(Mutex::new(None)),
+                    };
+                    
+                    // Check if we should run mode logic
+                    if let Err(e) = handle_mode_specific_logic(&app_handle_timer, &current_mode, &temp_state).await {
+                        send_log(&app_handle_timer, "error", &format!("Mode logic error: {}", e));
+                    }
+                }
+            });
+            
+            send_log(&app_handle, "info", "Background timer started for mode-specific checks");
             
             Ok(())
         })

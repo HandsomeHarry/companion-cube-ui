@@ -4,235 +4,136 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Companion Cube** is a pure Tauri-based ADHD productivity assistant that monitors user activity through ActivityWatch and provides supportive interventions using AI. The application runs as a native desktop application with system tray functionality, tracking computer usage patterns and offering contextual assistance without judgment.
+**Companion Cube** is a Tauri-based ADHD productivity assistant that monitors user activity through ActivityWatch and provides supportive interventions using AI (Ollama). The application runs as a native desktop application with system tray functionality, tracking computer usage patterns and offering contextual assistance without judgment.
 
 ## Core Architecture
 
-**IMPORTANT: Companion Cube is a PURE TAURI APPLICATION** - not a hybrid web app or CLI tool. It consists of:
-- **Rust backend** with all business logic in `src-tauri/`
-- **Minimal HTML interface** for the optional dashboard window  
-- **System tray menu** as the primary user interface
-- **No React, Vite, Node.js, or npm dependencies**
+The application is built with:
+- **Rust backend** (`src-tauri/src/lib.rs`): Contains ALL business logic, activity monitoring, AI integration, and system tray management
+- **React frontend** (`src/`): Minimal UI for dashboard display and settings
+- **System tray** as the primary interface - the app runs in background with occasional notifications
 
-### Main Components
+### Critical Design Decisions
 
-- **`src-tauri/src/main.rs`**: Tauri application entry point that calls `app_lib::run()`
-- **`src-tauri/src/lib.rs`**: Core Tauri application with system tray, window management, and all business logic
-- **`src-tauri/src/index.html`**: Minimal HTML dashboard interface (self-contained)
-- **Root `cargo.toml`**: Workspace configuration that runs the Tauri application via `cargo run`
-
-### System Tray Interface (Primary UI)
-
-The application primarily operates through a **system tray menu**:
-- **Right-click tray icon**: Access all features
-- **Mode Selection**: Ghost, Coach, Study Buddy, Chill modes
-- **Dashboard**: Optional window with status overview
-- **Connection Check**: Test ActivityWatch and Ollama connectivity  
-- **Quit**: Exit application
-
-**Window Behavior:**
-- Starts hidden on launch (`visible: false`)
-- Closes to tray instead of exiting (`closable: false`)
-- Double-click tray icon to show dashboard window
-
-### Key Data Flow
-
-1. **Data Collection**: ActivityWatch client fetches window/AFK events across multiple timeframes
-2. **State Analysis**: LLM analyzes activity data to determine user state (flow/working/needs_nudge/afk)  
-3. **Intervention Decision**: Based on state, mode, and cooldown timers
-4. **Response Generation**: Creates contextual ADHD-friendly prompts and responses
-5. **Logging & Summaries**: Tracks activity logs, generates summaries and reports
-
-### Companion Modes
-
-- **Ghost**: Monitoring only, no interventions
-- **Coach**: Balanced interventions for focus and productivity
-- **Study Buddy**: Frequent check-ins and support
-- **Chill**: Minimal interventions, relaxed monitoring
-
-## Prerequisites
-
-**Required Dependencies:**
-- **ActivityWatch**: Download and install from https://activitywatch.net/
-  - Must be running on localhost:5600
-  - Required for activity monitoring - application cannot start without it
-- **Ollama** (optional but recommended): Install from https://ollama.ai
-  - Used for AI-powered state analysis and interventions
-  - Application will use fallback responses if not available
-  - Run `ollama serve` to start the service
-  - Pull desired model: `ollama pull mistral`
+1. **AFK Filtering**: All activity analysis excludes idle periods using `get_active_window_events()` which cross-references window events with AFK buckets
+2. **State Detection**: Four states: `flow` (15+ min single app), `working` (normal productivity), `needs_nudge` (5+ switches or entertainment), `afk` (user away)
+3. **Mode-Specific Timing**: Ghost/Chill (hourly), Study (5-min), Coach (15-min) - enforced by background timer checking every minute
+4. **AI Prompt Unification**: All modes use `generate_ai_summary()` for consistent analysis quality
 
 ## Development Commands
 
-### Building and Running
 ```bash
-# Build the Tauri application
-cargo build
+# Frontend build (required before running Tauri)
+npm run build
 
-# Run the Tauri GUI application (primary command)
-cargo run
-
-# Run from src-tauri directory (alternative)
+# Run the Tauri application (launches GUI with system tray)
 cd src-tauri && cargo run
-```
 
-**IMPORTANT:** This is NOT a CLI application. `cargo run` launches the Tauri GUI app with system tray functionality.
+# Development mode with hot reload
+npm run dev  # Terminal 1: Frontend dev server
+cd src-tauri && cargo run  # Terminal 2: Tauri app
 
-### Development Tools
-```bash
+# Production build
+npm run build && cd src-tauri && cargo build --release
+
 # Run tests
 cargo test
-
-# Check formatting
-cargo fmt --check
-
-# Run clippy lints  
 cargo clippy
-
-# Build for release
-cargo build --release
+cargo fmt --check
 ```
 
-## Key Configuration Points
+## Key Functions and Data Flow
 
-### Tauri Configuration
-- **Frontend**: Self-contained HTML in `src-tauri/src/index.html`
-- **Window Settings**: Starts hidden, closes to tray
-- **System Tray**: Full menu with mode switching and controls
-- **Icons**: Located in `src-tauri/icons/`
+### Activity Monitoring Pipeline
+1. `ActivityWatchClient::get_multi_timeframe_data_active()` - Fetches data for 5min, 30min, 1hr periods with AFK filtering
+2. `EventProcessor::prepare_raw_data_for_llm()` - Transforms events into structured timeline and context switches
+3. `EventProcessor::create_state_analysis_prompt()` - Generates comprehensive prompt with user context
+4. `call_ollama_api()` - Sends to LLM with 0.3 temperature for consistent responses
+5. `parse_llm_response()` - Robust JSON extraction handling malformed responses
 
-### LLM Integration
-- **Default Model**: `mistral` (hardcoded in Tauri commands)
-- **Ollama URL**: `http://localhost:11434` (hardcoded in config)
-- **Timeout Settings**: 10s for interventions, 30s for analysis
-- **Fallback Responses**: Available when Ollama is unavailable
+### Mode-Specific Behavior
 
-### ActivityWatch Integration
-- **Default Port**: 5600
-- **Required Buckets**: `aw-watcher-window_*`, `aw-watcher-afk_*`
-- **Retry Logic**: 3 attempts with exponential backoff
-- **Data Collection**: Multi-timeframe data (5min, 30min, 1hr, today)
+**Study Mode** (Special handling):
+- Uses `generate_study_focused_summary()` with study-specific context
+- Immediate summary generation on mode switch via `set_mode()` command
+- Context: "Currently studying: [topic]. Focus on study-related activities..."
 
-### Intervention System
-- **Cooldown Timers**: flow (45min), working (15min), needs_nudge (5min), afk (0min)
-- **Focus Threshold**: 15+ minutes in same app considered focus session
-- **Context Switching**: 5+ switches triggers "needs_nudge"
+**Coach Mode**:
+- Generates todo lists via `generate_coach_todo_list()` in addition to activity summary
+- Todos saved to `data/coach_todos.json` for frontend display
 
-## File Structure and Data Management
+### Critical State Management
+- `AppState::latest_hourly_summary`: In-memory cache for immediate UI updates
+- Background timer uses cloned Arc references to prevent lifetime issues
+- Mode switches trigger immediate analysis for study mode
 
-### Application Structure
+## Important Implementation Details
+
+### Frontend-Backend Communication
+- Events: `hourly_summary_updated`, `mode_changed`, `show_notification`
+- Commands: `get_hourly_summary`, `generate_hourly_summary`, `set_mode`, `classify_activities`
+- Frontend polls every 30 seconds as fallback for missed events
+
+### Error Handling Patterns
+- HTTP clients use `OnceLock` for singleton pattern with connection pooling
+- Graceful degradation: When Ollama unavailable, uses `generate_time_based_summary()`
+- All mode handlers return `Result<(), String>` for consistent error propagation
+
+### Performance Optimizations
+- `get_multi_timeframe_data_active()` fetches data once, filters locally for different timeframes
+- Bucket information cached to avoid repeated `get_buckets()` calls
+- Study mode context injection avoids re-analyzing when context is known
+
+## Common Pitfalls and Solutions
+
+1. **UTF-8 String Slicing**: Use `chars().take(n).collect()` instead of byte slicing for titles
+2. **Event Emission**: Use `app.emit()` not `emit_all` (doesn't exist in this Tauri version)
+3. **Prompt Length**: Keep prompts concise - verbose prompts cause JSON parsing failures
+4. **Mode Switching**: Study mode requires immediate generation, other modes wait for timer
+
+## Testing Approach
+
+### Manual Testing Flow
+1. Ensure ActivityWatch is running (localhost:5600)
+2. Start Ollama if available (`ollama serve`)
+3. Run app: `npm run build && cd src-tauri && cargo run`
+4. Test mode switching via system tray
+5. Verify summaries update in GUI
+6. Check `data/` directory for generated files
+
+### Key Test Scenarios
+- Mode switch to study → Immediate summary with study context
+- Manual generation → Uses general context regardless of mode
+- Ollama offline → Fallback summaries work
+- Long idle period → AFK filtering excludes from analysis
+
+## File Organization
+
 ```
-/mnt/e/cc/
-├── cargo.toml              # Workspace config - runs Tauri app
-├── src-tauri/              # Tauri application directory
-│   ├── src/
-│   │   ├── main.rs         # Entry point
-│   │   ├── lib.rs          # Core logic, system tray, Tauri commands
-│   │   └── index.html      # Minimal HTML dashboard
-│   ├── Cargo.toml          # Tauri dependencies
-│   ├── tauri.conf.json     # Tauri configuration
-│   └── icons/              # Application icons
-└── data/                   # Runtime data directory
-    ├── config.json         # User configuration
-    ├── hourly_summary.txt  # Generated summaries
-    └── daily_summary.txt   # Daily reports
-```
+src-tauri/
+├── src/
+│   ├── lib.rs          # 3800+ lines - ALL backend logic
+│   └── main.rs         # 2 lines - just calls lib::run()
+├── data/               # Runtime data (gitignored)
+│   ├── config.json     # User settings and context
+│   ├── hourly_summary.txt
+│   └── coach_todos.json
+└── icons/              # System tray icons
 
-### Data Directory (`src-tauri/data/`)
-- **`config.json`**: User context and settings
-- **`hourly_summary.txt`**: Hourly activity summaries
-- **`daily_summary.txt`**: Daily summary reports
-
-## Tauri Commands (Available to Frontend)
-
-The HTML dashboard can call these Tauri commands:
-- **`check_connections`**: Test ActivityWatch and Ollama connectivity
-- **`get_current_mode`**: Get current companion mode
-- **`set_mode`**: Change companion mode
-- **`get_hourly_summary`**: Get current activity summary
-- **`generate_hourly_summary`**: Force generate new summary
-- **`generate_daily_summary_command`**: Generate daily report
-- **`load_user_config`**: Load user configuration
-- **`save_user_config`**: Save user configuration
-- **`show_connection_help`**: Get help text for connectivity issues
-
-## Development Patterns
-
-### Error Handling
-- Uses `anyhow::Result` for error propagation
-- Graceful degradation when external services unavailable
-- Extensive logging with Tauri's logging plugin
-
-### State Management
-- App state managed through Tauri's state management
-- Mode changes propagated via Tauri events
-- Intervention cooldowns stored in memory
-
-### System Tray Integration
-- **Menu Creation**: Dynamic menu based on current mode
-- **Event Handling**: Mode switching, window showing, quit functionality
-- **Status Updates**: Real-time menu updates when mode changes
-
-## Testing and User Experience
-
-### Primary Interaction Flow
-1. **Launch**: `cargo run` starts app in system tray
-2. **Mode Selection**: Right-click tray → select mode
-3. **Dashboard**: Double-click tray or select "Dashboard" 
-4. **Monitoring**: App runs in background monitoring activity
-5. **Interventions**: Contextual notifications based on mode and activity
-
-### Connection Testing
-The system tray menu includes "Check Ollama and AW" option to test connectivity.
-
-### Log Levels
-Set log level via environment variable:
-```bash
-RUST_LOG=debug cargo run
+src/                    # React frontend
+├── App.tsx             # Main app with event listeners
+├── components/
+│   ├── MainContent.tsx # Dashboard cards and summaries
+│   ├── Sidebar.tsx     # Mode selection
+│   └── Terminal.tsx    # Log display
+└── utils/
+    └── modes.ts        # Mode colors and display names
 ```
 
-## Dependencies of Note
+## Debugging Tips
 
-### Tauri-Specific
-- **tauri**: Core Tauri framework with tray-icon feature
-- **tauri-plugin-log**: Logging plugin for Tauri applications
-
-### Business Logic  
-- **reqwest**: HTTP client for ActivityWatch and Ollama APIs
-- **chrono**: Date/time handling with timezone support
-- **serde**: JSON serialization for data structures and API responses
-- **anyhow**: Error handling and propagation
-- **indexmap**: Ordered maps for activity summaries
-- **url**: URL parsing for web domain extraction
-
-## Important Implementation Notes
-
-- **System Tray**: Fully implemented with Tauri's tray-icon feature
-- **Window Management**: Hides to tray instead of closing, prevents accidental exit
-- **No CLI Interface**: This is purely a GUI application, not a command-line tool
-- **Self-Contained**: No external web server or Node.js dependencies required
-- **Native Performance**: Pure Rust backend with minimal HTML frontend
-- **Cross-Platform**: Tauri applications work on Windows, macOS, and Linux
-
-## Build and Distribution
-
-### Development Build
-```bash
-cargo run  # Starts in development mode with hot reload
-```
-
-### Release Build
-```bash
-cargo build --release  # Creates optimized binary
-```
-
-### Tauri Bundle (Future)
-```bash
-cd src-tauri && cargo tauri build  # Creates platform-specific installers
-```
-
-## Known Limitations
-
-- **Web Event Processing**: Disabled due to timing issues with ActivityWatch web watchers
-- **Advanced CLI Features**: Removed in favor of GUI/tray interface
-- **Platform-Specific**: Some system tray behaviors may vary across platforms
+- Enable debug logs: `RUST_LOG=debug cargo run`
+- Check browser console for frontend event reception
+- Verify ActivityWatch buckets: `curl http://localhost:5600/api/0/buckets/`
+- Test Ollama: `curl http://localhost:11434/api/generate -d '{"model":"mistral","prompt":"test"}'`
+- Mode timing issues: Check `should_run_summary()` and `last_summary_time` logic
