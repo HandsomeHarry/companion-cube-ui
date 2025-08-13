@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import MainContent from './components/MainContent'
 import Sidebar from './components/Sidebar'
 import Settings from './components/Settings'
+import History from './components/History'
 import { getThemeClasses } from './utils/theme'
 
 interface ConnectionStatus {
@@ -17,6 +18,9 @@ interface HourlySummary {
   last_updated: string
   period: string
   current_state: string
+  work_score?: number
+  distraction_score?: number
+  neutral_score?: number
 }
 
 interface DailySummary {
@@ -42,6 +46,7 @@ interface UserConfig {
   // Notification settings
   notifications_enabled: boolean
   notification_webhook?: string
+  ollama_model: string
 }
 
 interface ActivityClassification {
@@ -72,7 +77,8 @@ function App() {
     study_notification_prompt: "Looks like you got distracted from studying. Let's get back on track! 📚",
     coach_notification_prompt: "Time to check your progress! Please review and update your todo list. ✓",
     notifications_enabled: true,
-    notification_webhook: undefined
+    notification_webhook: undefined,
+    ollama_model: 'mistral'
   })
   const [isGeneratingHourly, setIsGeneratingHourly] = useState(false)
   const [isGeneratingDaily, setIsGeneratingDaily] = useState(false)
@@ -93,12 +99,13 @@ function App() {
       try {
         const [hourlyData, dailyData, config] = await Promise.all([
           invoke('get_hourly_summary'),
-          invoke('generate_daily_summary_command'),
+          invoke('get_daily_summary'),
           invoke('load_user_config')
         ])
         
         setHourlySummary(hourlyData as HourlySummary)
         setDailySummary(dailyData as DailySummary)
+        console.log('Loaded config from backend:', config)
         setUserConfig(config as UserConfig)
         
         // Auto-load activity classification on app start
@@ -240,8 +247,14 @@ function App() {
 
   const handleSaveConfig = async () => {
     try {
+      console.log('Saving config:', userConfig)
       await invoke('save_user_config', { config: userConfig })
       console.log('Configuration saved successfully')
+      
+      // Reload config to verify it was saved
+      const savedConfig = await invoke('load_user_config')
+      console.log('Verified saved config:', savedConfig)
+      setUserConfig(savedConfig as UserConfig)
     } catch (error) {
       console.error('Failed to save configuration:', error)
     }
@@ -250,7 +263,7 @@ function App() {
   const handleClassifyActivities = async () => {
     setIsClassifying(true)
     try {
-      const result = await invoke('classify_activities')
+      const result = await invoke('categorize_activities_by_time')
       setActivityClassification(result as ActivityClassification)
     } catch (error) {
       console.error('Failed to classify activities:', error)
@@ -262,7 +275,9 @@ function App() {
   const renderContent = () => {
     switch (currentPage) {
       case 'settings':
-        return <Settings isDarkMode={isDarkMode} currentMode={currentMode} />
+        return <Settings isDarkMode={isDarkMode} currentMode={currentMode} connectionStatus={connectionStatus} />
+      case 'history':
+        return <History isDarkMode={isDarkMode} currentMode={currentMode} />
       case 'home':
       default:
         return (

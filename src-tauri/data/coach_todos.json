@@ -1,36 +1,12 @@
 {
   "todos": [
     {
-      "id": "todo_0",
-      "text": "Research DIY woodworking projects suitable for beginners.",
+      "id": "1",
+      "text": "Work on: complete daily tasks",
       "completed": false,
-      "created_at": "2025-07-24 01:39:41"
-    },
-    {
-      "id": "todo_1",
-      "text": "Find and bookmark reliable online resources for learning woodworking techniques.",
-      "completed": false,
-      "created_at": "2025-07-24 01:39:41"
-    },
-    {
-      "id": "todo_2",
-      "text": "Create a list of essential tools needed for DIY woodworking projects.",
-      "completed": false,
-      "created_at": "2025-07-24 01:39:41"
-    },
-    {
-      "id": "todo_3",
-      "text": "Watch beginner-friendly video tutorials on YouTube to understand basic woodworking techniques.",
-      "completed": false,
-      "created_at": "2025-07-24 01:39:41"
-    },
-    {
-      "id": "todo_4",
-      "text": "Join relevant online communities or forums to connect with other DIY woodworkers and ask questions.",
-      "completed": false,
-      "created_at": "2025-07-24 01:39:41"
+      "created_at": "2025-08-12 00:55:11"
     }
   ],
-  "generated_at": "2025-07-24 01:39:38",
-  "context": "learning about DIY Woodworking"
+  "generated_at": "2025-08-12 00:55:11",
+  "context": "complete daily tasks"
 }

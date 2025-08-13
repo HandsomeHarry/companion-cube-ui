@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Companion Cube Commands</title>
+    <script>
+        async function testGenerate() {
+            console.log('Testing generate command...');
+            try {
+                const response = await fetch('http://localhost:1420/test_generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                const result = await response.text();
+                console.log('Result:', result);
+                document.getElementById('result').textContent = result;
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('result').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function testGenerateHourly() {
+            console.log('Testing generate_hourly_summary command...');
+            document.getElementById('result').textContent = 'Generating... (check console for logs)';
+            try {
+                const response = await fetch('http://localhost:1420/generate_hourly_summary', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                const result = await response.text();
+                console.log('Result:', result);
+                document.getElementById('result').textContent = result;
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('result').textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>Test Companion Cube</h1>
+    <button onclick="testGenerate()">Test Simple Generate</button>
+    <button onclick="testGenerateHourly()">Test Hourly Summary</button>
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc;">
+        Results will appear here...
+    </div>
+</body>
+</html>

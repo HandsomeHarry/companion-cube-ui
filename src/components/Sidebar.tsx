@@ -1,4 +1,4 @@
-import { Home, Settings, Ghost, Coffee, BookOpen, Brain } from 'lucide-react'
+import { Home, Settings, Ghost, Coffee, BookOpen, Brain, BarChart2 } from 'lucide-react'
 import { getThemeClasses } from '../utils/theme'
 
 interface SidebarProps {
@@ -52,6 +52,18 @@ function Sidebar({ currentMode, onModeChange, currentPage, onPageChange, isDarkM
           >
             <Home className="w-4 h-4" />
             <span className="font-medium text-sm">Home</span>
+          </button>
+          <button 
+            onClick={() => onPageChange('history')}
+            className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${
+              currentPage === 'history' 
+                ? 'text-white shadow-inner' 
+                : `${themeClasses.textPrimary} hover:${themeClasses.surfaceSecondary}`
+            }`}
+            style={currentPage === 'history' ? { backgroundColor: themeClasses.primary } : {}}
+          >
+            <BarChart2 className="w-4 h-4" />
+            <span className="font-medium text-sm">History</span>
           </button>
           <button 
             onClick={() => onPageChange('settings')}

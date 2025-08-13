@@ -32,3 +32,7 @@ dirs = "5.0"
 indexmap = { version = "2.0", features = ["serde"] }
 url = "2.4"
 futures = "0.3"
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "migrate", "chrono"] }
+rdev = "0.5"  # For mouse/keyboard tracking
+device_query = "2.0"  # Alternative input tracking
+regex = "1.10"

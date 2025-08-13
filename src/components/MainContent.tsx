@@ -2,7 +2,8 @@ import { Sun, Moon, RefreshCw, Eye, Cpu } from 'lucide-react'
 import ActivityChart from './ActivityChart'
 import Terminal from './Terminal'
 import { getThemeClasses } from '../utils/theme'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 
 interface ConnectionStatus {
   activitywatch: boolean
@@ -15,6 +16,9 @@ interface HourlySummary {
   last_updated: string
   period: string
   current_state: string
+  work_score?: number
+  distraction_score?: number
+  neutral_score?: number
 }
 
 interface DailySummary {
@@ -126,6 +130,33 @@ function MainContent({
     }
   }
 
+  // Load activity classification on mount and when needed
+  useEffect(() => {
+    if (!activityClassification && connectionStatus.activitywatch) {
+      // Activity classification is loaded by the parent App component
+      // This is just a placeholder for any future logic
+    }
+  }, [connectionStatus.activitywatch, activityClassification])
+
+  // Convert HourlySummary scores to ActivityClassification format
+  const getActivityClassification = (): ActivityClassification | null => {
+    // Always prefer the actual time-based classification
+    if (activityClassification) {
+      return activityClassification
+    }
+    
+    // Fallback to scores from summary if available
+    if (hourlySummary && hourlySummary.work_score !== undefined) {
+      return {
+        work: hourlySummary.work_score || 0,
+        communication: hourlySummary.neutral_score || 0,
+        distraction: hourlySummary.distraction_score || 0
+      }
+    }
+    
+    return null
+  }
+
   const handleContextChange = (mode: string, value: string) => {
     switch (mode) {
       case 'study_buddy':
@@ -159,11 +190,13 @@ function MainContent({
   return (
     <div className={`flex-1 ${themeClasses.background} h-screen flex flex-col`}>
       {/* Header */}
-      <div className={`p-4 ${themeClasses.background} ${themeClasses.border} border-b flex-shrink-0`}>
+      <div className={`p-6 ${themeClasses.background} ${themeClasses.border} border-b flex-shrink-0`}>
         <div className="flex items-center justify-between">
-          <h1 className={`text-2xl font-bold ${themeClasses.textPrimary}`}>
-            {getModeDisplayName(currentMode)}
-          </h1>
+          <div className="flex items-center space-x-3">
+            <h1 className={`text-3xl font-bold ${themeClasses.textPrimary}`}>
+              {getModeDisplayName(currentMode)}
+            </h1>
+          </div>
           <div className="flex items-center space-x-3">
             {/* Connection Status Icons */}
             <div className="flex items-center space-x-2">
@@ -184,7 +217,7 @@ function MainContent({
             {/* Theme Toggle */}
             <button
               onClick={onToggleTheme}
-              className={`p-2 rounded-lg ${themeClasses.surfaceSecondary} hover:opacity-75 transition-colors`}
+              className={`w-10 h-10 rounded-lg ${isDarkMode ? themeClasses.surfaceSecondary : 'bg-gray-200 hover:bg-gray-300'} transition-colors flex items-center justify-center`}
             >
               {isDarkMode ? (
                 <Sun className="w-4 h-4 text-slate-400" />
@@ -197,13 +230,13 @@ function MainContent({
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 p-3 overflow-y-auto min-h-0">
-        <div className="space-y-3 pb-6">
+      <div className="flex-1 p-8 overflow-y-auto min-h-0">
+        <div className="space-y-6 pb-6">
           {/* Mode-specific Cards Layout */}
           {currentMode === 'study_buddy' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Left Column - Study Mode */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {/* Study Focus - First Card */}
                 <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
                   <div className="mb-3">
@@ -229,7 +262,7 @@ function MainContent({
                   
                   <button
                     onClick={onSaveConfig}
-                    className={`px-3 py-1 text-white rounded-lg transition-colors text-sm`}
+                    className={`px-4 py-2 text-white rounded-lg transition-colors text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
                     style={{ backgroundColor: themeClasses.primary }}
                   >
                     Save Context
@@ -245,7 +278,7 @@ function MainContent({
                     <button
                       onClick={onGenerateDaily}
                       disabled={isGeneratingDaily}
-                      className={`px-3 py-1 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm`}
+                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
                       style={{ backgroundColor: themeClasses.primary }}
                     >
                       {isGeneratingDaily ? (
@@ -265,7 +298,7 @@ function MainContent({
               </div>
 
               {/* Right Column - Study Mode */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {/* 5-minute State - Second Card */}
                 <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
                   <div className="flex items-center justify-between mb-3">
@@ -282,7 +315,7 @@ function MainContent({
                     <button
                       onClick={onGenerateHourly}
                       disabled={isGeneratingHourly}
-                      className={`px-3 py-1 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm`}
+                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
                       style={{ backgroundColor: themeClasses.primary }}
                     >
                       {isGeneratingHourly ? (
@@ -320,15 +353,15 @@ function MainContent({
                     )}
                   </div>
                   <div className="h-64">
-                    <ActivityChart isDarkMode={isDarkMode} classification={activityClassification} />
+                    <ActivityChart isDarkMode={isDarkMode} classification={getActivityClassification()} />
                   </div>
                 </div>
               </div>
             </div>
           ) : currentMode === 'coach' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Left Column - Coach Mode */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {/* Coach Task - First Card */}
                 <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
                   <div className="mb-3">
@@ -353,7 +386,7 @@ function MainContent({
                   
                   <button
                     onClick={onSaveConfig}
-                    className={`px-3 py-1 text-white rounded-lg transition-colors text-sm`}
+                    className={`px-4 py-2 text-white rounded-lg transition-colors text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
                     style={{ backgroundColor: themeClasses.primary }}
                   >
                     Save Context
@@ -389,7 +422,7 @@ function MainContent({
               </div>
 
               {/* Right Column - Coach Mode */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {/* 15-minute Summary - Third Card */}
                 <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
                   <div className="flex items-center justify-between mb-3">
@@ -404,7 +437,7 @@ function MainContent({
                     <button
                       onClick={onGenerateHourly}
                       disabled={isGeneratingHourly}
-                      className={`px-3 py-1 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm`}
+                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
                       style={{ backgroundColor: themeClasses.primary }}
                     >
                       {isGeneratingHourly ? (
@@ -442,16 +475,16 @@ function MainContent({
                     )}
                   </div>
                   <div className="h-64">
-                    <ActivityChart isDarkMode={isDarkMode} classification={activityClassification} />
+                    <ActivityChart isDarkMode={isDarkMode} classification={getActivityClassification()} />
                   </div>
                 </div>
               </div>
             </div>
           ) : (
             /* Default layout for ghost and chill modes */
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Left Column */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {/* Hourly State */}
                 <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
                   <div className="flex items-center justify-between mb-3">
@@ -466,7 +499,7 @@ function MainContent({
                     <button
                       onClick={onGenerateHourly}
                       disabled={isGeneratingHourly}
-                      className={`px-3 py-1 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm`}
+                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
                       style={{ backgroundColor: themeClasses.primary }}
                     >
                       {isGeneratingHourly ? (
@@ -502,7 +535,7 @@ function MainContent({
                     <button
                       onClick={onGenerateDaily}
                       disabled={isGeneratingDaily}
-                      className={`px-3 py-1 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm`}
+                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
                       style={{ backgroundColor: themeClasses.primary }}
                     >
                       {isGeneratingDaily ? (
@@ -522,7 +555,7 @@ function MainContent({
               </div>
 
               {/* Right Column */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {/* Work vs Distractions */}
                 <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4`}>
                   <div className="flex items-center justify-between mb-3">
@@ -534,7 +567,7 @@ function MainContent({
                     )}
                   </div>
                   <div className="h-64">
-                    <ActivityChart isDarkMode={isDarkMode} classification={activityClassification} />
+                    <ActivityChart isDarkMode={isDarkMode} classification={getActivityClassification()} />
                   </div>
                 </div>
 
@@ -552,8 +585,8 @@ function MainContent({
                   <div className="flex-1 mb-3">
                     <div className={`${themeClasses.surfaceSecondary} rounded-lg p-3 h-32`}>
                       <textarea
-                        value={userConfig.user_context}
-                        onChange={(e) => setUserConfig({ ...userConfig, user_context: e.target.value })}
+                        value={getContextValue(currentMode)}
+                        onChange={(e) => handleContextChange(currentMode, e.target.value)}
                         placeholder={getContextPlaceholder(currentMode)}
                         className={`w-full h-full bg-transparent ${themeClasses.textPrimary} font-mono text-sm resize-none focus:outline-none placeholder-slate-400`}
                       />
@@ -562,7 +595,7 @@ function MainContent({
                   
                   <button
                     onClick={onSaveConfig}
-                    className={`px-3 py-1 text-white rounded-lg transition-colors text-sm`}
+                    className={`px-4 py-2 text-white rounded-lg transition-colors text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
                     style={{ backgroundColor: themeClasses.primary }}
                   >
                     Save Context
