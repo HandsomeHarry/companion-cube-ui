@@ -4,7 +4,8 @@
 
 ## Features
 
-<img width="1247" height="830" alt="image" src="https://github.com/user-attachments/assets/009ed6ab-1492-4abc-86c7-abb8acfe4b38" />
+<img width="1247" height="830" alt="image" src="https://github.com/user-attachments/assets/ea74cf29-b5a4-46e6-9a25-46883ca51c54" />
+
 
 ### Core Functionality
 - **Real-time Activity Monitoring**: Integrates with ActivityWatch for comprehensive computer usage tracking
