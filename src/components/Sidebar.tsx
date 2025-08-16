@@ -26,12 +26,13 @@ function Sidebar({ currentMode, onModeChange, currentPage, onPageChange, isDarkM
       {/* Header with Logo */}
       <div className="p-3">
         <div className="flex items-start">
-          {/* Logo - Gradient icon only */}
+          {/* Logo - Gradient icon with mode colors */}
           <div 
             className="w-12 h-12 rounded-full flex items-center justify-center ml-2"
             style={{ 
-              background: 'linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%)',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              background: `linear-gradient(135deg, ${themeClasses.primary} 0%, ${themeClasses.primaryHover} 100%)`,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+              transition: transitions.base
             }}
           >
             <span className="text-white font-bold text-xl">C</span>

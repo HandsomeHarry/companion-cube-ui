@@ -1,6 +1,6 @@
 {
   "name": "companion-cube-ui",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "description": "Companion Cube ADHD Productivity Assistant UI",
   "type": "module",
   "scripts": {

@@ -11,7 +11,7 @@ use modules::{
 
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    menu::{MenuBuilder, MenuEvent, MenuItemBuilder},
+    menu::{MenuBuilder, MenuEvent, MenuItemBuilder, CheckMenuItemBuilder},
     Manager, WindowEvent, Emitter, State, Listener,
 };
 use tokio::time::{interval, MissedTickBehavior};
@@ -120,27 +120,29 @@ fn setup_system_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::E
 }
 
 fn update_tray_menu(app: &tauri::AppHandle, current_mode: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // Create menu items
-    let ghost_item = MenuItemBuilder::with_id("ghost", "👻 Ghost Mode")
-        .accelerator("CmdOrCtrl+G")
+    // Create checkable menu items for modes
+    let ghost_item = CheckMenuItemBuilder::with_id("ghost", "Ghost Mode")
+        .checked(current_mode == "ghost")
         .build(app)?;
-    let chill_item = MenuItemBuilder::with_id("chill", "😎 Chill Mode")
-        .accelerator("CmdOrCtrl+C")
+    
+    let chill_item = CheckMenuItemBuilder::with_id("chill", "Chill Mode")
+        .checked(current_mode == "chill")
         .build(app)?;
-    let study_item = MenuItemBuilder::with_id("study_buddy", "📚 Study Buddy Mode")
-        .accelerator("CmdOrCtrl+S")
+    
+    let study_item = CheckMenuItemBuilder::with_id("study_buddy", "Study Mode")
+        .checked(current_mode == "study_buddy")
         .build(app)?;
-    let coach_item = MenuItemBuilder::with_id("coach", "💼 Coach Mode")
-        .accelerator("CmdOrCtrl+O")
+    
+    let coach_item = CheckMenuItemBuilder::with_id("coach", "Coach Mode")
+        .checked(current_mode == "coach")
         .build(app)?;
+    
     let _separator = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let dashboard_item = MenuItemBuilder::with_id("dashboard", "📊 Dashboard")
-        .accelerator("CmdOrCtrl+D")
+    let dashboard_item = MenuItemBuilder::with_id("dashboard", "Dashboard")
         .build(app)?;
-    let check_item = MenuItemBuilder::with_id("check", "🔍 Check Ollama and AW")
+    let check_item = MenuItemBuilder::with_id("check", "Check Ollama and AW")
         .build(app)?;
-    let quit_item = MenuItemBuilder::with_id("quit", "❌ Quit")
-        .accelerator("CmdOrCtrl+Q")
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit")
         .build(app)?;
     
     // Build menu
@@ -199,6 +201,11 @@ fn handle_menu_event(app: &tauri::AppHandle, event: MenuEvent) {
                 let state = app_clone.state::<AppState>();
                 if let Err(e) = set_mode(mode.clone(), state, app_clone.clone()).await {
                     send_log(&app_clone, "error", &format!("Failed to set mode: {}", e));
+                } else {
+                    // Update tray menu to show checkmark on new mode
+                    if let Err(e) = update_tray_menu(&app_clone, &mode) {
+                        send_log(&app_clone, "error", &format!("Failed to update tray menu: {}", e));
+                    }
                 }
             });
         }

@@ -153,7 +153,7 @@ function App() {
 
     getCurrentMode()
 
-    const unlisten = listen('set_mode', (event) => {
+    const unlisten = listen('mode_changed', (event) => {
       setCurrentMode(event.payload as string)
     })
 
