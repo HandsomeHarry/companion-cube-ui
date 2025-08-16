@@ -1,202 +1,262 @@
 # Companion Cube
 
-**Companion Cube** is a comprehensive ADHD productivity assistant that combines activity monitoring, AI-powered insights, and contextual interventions to help users maintain focus and productivity. The system features both a CLI interface and a modern desktop GUI built with Tauri and React.
+**Companion Cube** is a Tauri-based ADHD productivity assistant that monitors user activity through ActivityWatch and provides supportive interventions using AI (Ollama). The application runs as a native desktop application with system tray functionality, tracking computer usage patterns and offering contextual assistance without judgment.
 
 ## Features
 
 ### Core Functionality
-- **Activity Monitoring**: Integrates with ActivityWatch to track computer usage patterns
-- **AI-Powered Analysis**: Uses Ollama LLM for intelligent state analysis and personalized responses
-- **Multiple Modes**: Adaptive behavior based on user context (Ghost, Chill, Study, Coach)
-- **Smart Interventions**: Context-aware notifications and productivity nudges
-- **Real-time Dashboard**: Modern React-based GUI with live activity charts and summaries
+- **Real-time Activity Monitoring**: Integrates with ActivityWatch for comprehensive computer usage tracking
+- **AI-Powered Analysis**: Uses local Ollama LLM for intelligent activity analysis and personalized insights
+- **Adaptive Modes**: Four distinct productivity modes (Ghost, Chill, Study, Coach) with mode-specific behavior
+- **System Tray Integration**: Runs in background with minimal interface disruption
+- **Smart Categorization**: Automatic app categorization with productivity scoring
+- **AFK Filtering**: Excludes idle periods for accurate productivity analysis
 
-### Key Components
-- **Hourly Summaries**: AI-generated insights about recent activity patterns
-- **Daily Reports**: Comprehensive analysis of productivity and focus sessions
-- **Focus Scoring**: Quantitative metrics for productivity assessment
-- **Dark/Light Mode**: Fully themed interface with custom scrollbars
-- **Responsive Design**: Adapts to different screen sizes with flexible card layouts
+### Dashboard Features
+- **Activity Classification**: Real-time breakdown of productive vs. distraction time
+- **Focus Scoring**: Quantitative productivity metrics with visual indicators
+- **Hourly/Daily Summaries**: AI-generated insights about activity patterns
+- **Mode-Specific Contexts**: Personalized prompts for study topics or tasks
+- **Activity History**: Comprehensive charts and statistics
+- **Dark/Light Theme**: Fully themed interface with Segoe UI typography
 
 ## Architecture
 
 ### Technology Stack
 - **Backend**: Rust with Tauri for cross-platform desktop application
-- **Frontend**: React with TypeScript for modern UI components
-- **Styling**: Tailwind CSS with custom theme system
-- **State Management**: React hooks with context-aware theming
+- **Frontend**: React 18 with TypeScript for modern UI components
+- **Styling**: Tailwind CSS with custom design system
+- **Charts**: Chart.js and Recharts for data visualization
+- **State Management**: React hooks with Tauri state management
 - **Build System**: Vite for fast development and optimized builds
 
 ### Project Structure
 ```
 companion-cube/
-├── src/                    # Rust source code
-│   ├── main.rs            # CLI entry point
-│   ├── lib.rs             # Library interface
-│   ├── companion_cube.rs  # Core logic and LLM integration
-│   ├── activitywatch_client.rs  # ActivityWatch API client
-│   ├── event_processor.rs # Data analysis and pattern detection
-│   └── components/        # React UI components
-│       ├── App.tsx        # Main application component
-│       ├── MainContent.tsx # Dashboard content
-│       ├── Sidebar.tsx    # Navigation and mode selection
-│       ├── Terminal.tsx   # Log display
-│       └── ActivityChart.tsx # Data visualization
-├── src-tauri/             # Tauri desktop app backend
-│   ├── src/lib.rs         # Tauri commands and GUI integration
-│   └── tauri.conf.json    # Desktop app configuration
-├── data/                  # Runtime data storage
-│   ├── config.json        # User preferences and context
-│   ├── hourly_summary.txt # Activity summaries
-│   └── daily_summary.txt  # Daily reports
-└── utils/                 # Shared utilities
-    └── modes.ts           # Mode-based styling and display logic
+├── src-tauri/              # Rust backend
+│   ├── src/
+│   │   ├── lib.rs          # Main application logic (3800+ lines)
+│   │   ├── main.rs         # Entry point
+│   │   └── modules/        # Modular components
+│   │       ├── activity_watch.rs      # ActivityWatch API integration
+│   │       ├── ai_integration.rs      # Ollama LLM integration
+│   │       ├── app_state.rs          # Application state management
+│   │       ├── default_categories.rs  # App categorization system
+│   │       ├── enhanced_processor.rs  # Data processing pipeline
+│   │       ├── mode_handlers.rs      # Mode-specific logic
+│   │       ├── pattern_analyzer.rs   # Productivity pattern analysis
+│   │       └── tauri_commands.rs     # Frontend-backend API
+│   ├── data/               # Runtime data (gitignored)
+│   │   ├── config.json     # User settings and context
+│   │   ├── hourly_summary.txt
+│   │   ├── daily_summary.json
+│   │   └── coach_todos.json
+│   └── icons/              # System tray and app icons
+├── src/                    # React frontend
+│   ├── App.tsx             # Main app with event listeners
+│   ├── components/
+│   │   ├── MainContent.tsx # Dashboard with cards and summaries
+│   │   ├── Sidebar.tsx     # Mode selection and navigation
+│   │   ├── ActivityChart.tsx # Productivity visualization
+│   │   ├── History.tsx     # Activity history and charts
+│   │   ├── Settings.tsx    # Configuration interface
+│   │   └── Terminal.tsx    # Debug log display
+│   └── utils/
+│       ├── designSystem.ts # Typography and spacing constants
+│       └── theme.ts        # Mode-based theming system
+└── examples/               # Sample ActivityWatch data
 ```
 
 ## Getting Started
 
 ### Prerequisites
-1. **ActivityWatch**: Download and install from https://activitywatch.net/
+1. **ActivityWatch**: Download and install from [activitywatch.net](https://activitywatch.net/)
    - Must be running on `localhost:5600`
    - Required for activity monitoring
    
-2. **Ollama** (optional but recommended): Install from https://ollama.ai
-   - Used for AI-powered analysis and interventions
+2. **Ollama** (recommended): Install from [ollama.ai](https://ollama.ai)
+   - Used for AI-powered analysis
    - Run `ollama serve` to start the service
-   - Pull desired model: `ollama pull mistral`
+   - Pull a model: `ollama pull mistral` or `ollama pull llama3.2`
 
-3. **Rust**: Install from https://rustup.rs/
-4. **Node.js**: Install from https://nodejs.org/
+3. **Development Tools**:
+   - **Rust**: Install from [rustup.rs](https://rustup.rs/)
+   - **Node.js**: Install from [nodejs.org](https://nodejs.org/)
 
-### Installation
+### Installation & Development
+
 ```bash
 # Clone the repository
-git clone https://github.com/HandsomeHarry/companion-cube-ui
+git clone <repository-url>
 cd companion-cube
 
 # Install frontend dependencies
 npm install
 
-# Build the Rust backend
+# Frontend development (Terminal 1)
+npm run dev
+
+# Tauri application (Terminal 2)
+cd src-tauri
+cargo run
+```
+
+### Production Build
+
+```bash
+# Build frontend
+npm run build
+
+# Build and run production Tauri app
 cd src-tauri
 cargo build --release
-
-# Run the desktop application
-npm run
+cargo run --release
 ```
 
 ## Usage Modes
 
+The application provides four distinct productivity modes, each with unique timing and behavior:
+
 ### Available Modes
-- **Ghost Mode**: Minimal interventions, monitoring only
-- **Chill Mode**: Relaxed productivity assistance
-- **Study Mode**: Frequent check-ins and study support
-- **Coach Mode**: Balanced interventions for focus and productivity
+- **Ghost Mode**: Minimal interventions, hourly summaries only
+- **Chill Mode**: Relaxed monitoring with hourly check-ins
+- **Study Mode**: Frequent 5-minute analysis with study-specific context
+- **Coach Mode**: Balanced 15-minute intervals with todo list generation
 
-### Dashboard Features
-- **Hourly State**: Current productivity state with AI-generated insights
-- **Activity Chart**: Visual representation of work vs. distraction time
-- **Daily Summary**: Comprehensive analysis of the day's activities
-- **Personal Context**: User-defined context passed to AI for personalized responses
+### Mode-Specific Features
+- **Study Mode**: 
+  - Immediate summary generation on mode switch
+  - Study topic context integration
+  - 5-minute state analysis
+- **Coach Mode**: 
+  - Todo list generation and management
+  - Task-focused context prompts
+  - 15-minute productivity summaries
 
-## 🔧 Configuration
+## Key Features
+
+### Activity Analysis Pipeline
+1. **Data Collection**: ActivityWatch query API with server-side filtering
+2. **AFK Filtering**: Automatic exclusion of idle periods using `filter_period_intersect`
+3. **App Categorization**: Local classification system with productivity scoring
+4. **State Detection**: Five states - productive, moderate, chilling, unproductive, afk
+5. **LLM Analysis**: Comprehensive prompt generation with user context integration
+
+### Smart Categorization
+The system includes extensive app categorization:
+- **Work**: Development tools, productivity apps, office software
+- **Communication**: Email, messaging, video calls
+- **Entertainment**: Games, streaming, social media
+- **Development**: IDEs, terminals, version control
+- **Productivity**: Task management, note-taking, planning tools
+
+### Enhanced Data Processing
+- **Query API Integration**: Efficient server-side data processing
+- **Event Merging**: Consecutive events merged for better analysis
+- **Multi-timeframe Analysis**: Hour, day, and week-level insights
+- **Context Switching Detection**: Rapid app switching analysis
+
+## Configuration
 
 ### User Context
-The system supports personalized responses through user-defined context stored in `data/config.json`:
+Personalize AI responses through mode-specific contexts:
 
 ```json
 {
-  "user_context": "Your personal context, goals, and preferences here"
+  "user_context": "General productivity context and preferences",
+  "study_focus": "Current study topic or subject",
+  "coach_task": "Active project or goal"
 }
 ```
 
-### Intervention Settings
-- **Cooldown Timers**: Configurable intervals between interventions
-- **Focus Threshold**: Minimum time in same app to consider focus session
-- **Context Switching**: Detects rapid app switching for productivity nudges
+### App Categories
+Customize app categorization through the Settings interface:
+- Productivity scoring (0-100)
+- Category assignment
+- Subcategory classification
+- Bulk category updates
 
-## Data Flow
+## Development
 
-1. **Data Collection**: ActivityWatch client fetches activity data across multiple timeframes
-2. **State Analysis**: LLM analyzes raw activity data to determine user state
-3. **Intervention Decision**: System decides whether to intervene based on state and cooldown timers
-4. **Response Generation**: Creates contextual, ADHD-friendly prompts and responses
-5. **Logging & Summaries**: Tracks activity logs and generates periodic reports
-
-## Customization
-
-### Theming
-The application supports comprehensive theming with:
-- **Dark/Light Mode**: System-wide theme switching
-- **Mode-Based Colors**: Each productivity mode has distinct colors
-- **Custom Scrollbars**: Themed scrollbars that adapt to dark/light mode
-- **Responsive Design**: Flexible card layouts that expand with content
-
-### Extending Functionality
-- **Add New Modes**: Extend the mode system in `src/utils/modes.ts`
-- **Custom Prompts**: Modify LLM prompts in `src/event_processor.rs`
-- **UI Components**: Add new React components in `src/components/`
-
-## Data Management
-
-### Storage
-- **Activity Logs**: 5-minute summaries (last 7 days)
-- **Daily Summaries**: Daily reports (last 30 days)
-- **User Config**: Persistent user preferences and context
-
-### Privacy
-- **Local Storage**: All data stored locally, no cloud services
-- **Configurable Tracking**: Users control what data is collected
-- **No External APIs**: Optional Ollama integration runs locally
-
-## 🛠Development
-
-### Building
+### Commands
 ```bash
-# Development build
-cargo build
-npm run dev
+# Development
+npm run dev              # Frontend dev server
+cd src-tauri && cargo run  # Tauri app with hot reload
 
-# Production build
-cargo build --release
-npm run build
+# Building
+npm run build           # Production frontend build
+cargo build --release  # Production Tauri build
 
-# Run tests
-cargo test
-npm test
+# Testing
+cargo test             # Rust tests
+cargo clippy           # Rust linting
+cargo fmt --check      # Rust formatting check
 ```
 
 ### Code Quality
-- **Rust**: Uses clippy for linting and cargo fmt for formatting
-- **TypeScript**: Strict type checking with comprehensive interfaces
+- **Rust**: Comprehensive error handling with `Result<T, String>` patterns
+- **TypeScript**: Strict typing with comprehensive interfaces
 - **React**: Modern functional components with hooks
-- **Tailwind**: Utility-first CSS with custom theme system
+- **Tailwind**: Utility-first CSS with custom design system
+
+### Architecture Patterns
+- **Event-Driven**: Frontend-backend communication via Tauri events
+- **State Management**: Centralized app state with Arc/Mutex patterns
+- **Modular Design**: Clear separation of concerns in modules
+- **Error Handling**: Graceful degradation with fallback mechanisms
+
+## Performance Optimizations
+
+### Efficiency Features
+- **Query API**: Server-side ActivityWatch data processing
+- **Connection Pooling**: HTTP clients use `OnceLock` singleton pattern
+- **Caching**: Intelligent bucket information caching
+- **AFK Filtering**: Excludes idle periods to focus on active usage
+- **Background Processing**: Async timers for periodic analysis
+
+### System Requirements
+- **Memory**: 50-100MB typical usage
+- **CPU**: Low background usage with periodic analysis spikes
+- **Storage**: <10MB for application, variable for activity logs
+- **Network**: Local connections only (ActivityWatch, Ollama)
 
 ## Troubleshooting
 
 ### Common Issues
-1. **ActivityWatch Not Connected**: Ensure ActivityWatch is running on port 5600
-2. **Ollama Not Available**: Install and start Ollama service, or use fallback mode
-3. **Build Errors**: Check Rust and Node.js versions, run `cargo clean` and `npm ci`
+1. **ActivityWatch Not Connected**: 
+   - Ensure ActivityWatch is running on port 5600
+   - Check firewall settings
+   - Verify bucket creation
+
+2. **Ollama Not Available**: 
+   - Install and start Ollama service
+   - Pull required model
+   - Application falls back to time-based summaries
+
+3. **Build Errors**: 
+   - Check Rust and Node.js versions
+   - Run `cargo clean` and `npm ci`
+   - Ensure all dependencies are installed
 
 ### Debug Mode
-Use `--verbose` flag for detailed logging:
+Enable comprehensive logging:
 ```bash
-cargo run -- --verbose --test
+RUST_LOG=debug cargo run
 ```
 
-## Performance
+## Data Privacy
 
-### Optimization Features
-- **Efficient Data Processing**: Minimal memory usage with streaming data
-- **Caching**: Intelligent caching of ActivityWatch data
-- **Lazy Loading**: Components load only when needed
-- **Build Optimization**: Tree-shaking and code splitting in production
+### Local-First Design
+- **No Cloud Services**: All data stored locally
+- **Optional AI**: Ollama integration is optional and runs locally
+- **User Control**: Complete control over data collection and analysis
+- **No External APIs**: No data transmitted outside your machine
 
-### System Requirements
-- **Memory**: 50-100MB typical usage
-- **CPU**: Low background usage, periodic analysis spikes
-- **Storage**: <10MB for application, variable for activity logs
+### Data Storage
+- **Activity Logs**: Processed locally, stored in `data/` directory
+- **User Config**: Preferences stored in local JSON files
+- **Summaries**: AI-generated insights stored locally
 
 ## Contributing
 
@@ -204,13 +264,14 @@ cargo run -- --verbose --test
 1. Fork the repository
 2. Create a feature branch
 3. Follow existing code patterns and naming conventions
-4. Test thoroughly with both CLI and GUI modes
+4. Test with both ActivityWatch and Ollama integrations
 5. Submit pull request with detailed description
 
 ### Code Style
-- **Rust**: Follow standard Rust conventions with rustfmt
-- **TypeScript**: Use functional components with TypeScript interfaces
+- **Rust**: Follow standard conventions with `rustfmt`
+- **TypeScript**: Use functional components with proper typing
 - **Commits**: Use conventional commit messages
+- **Documentation**: Update README for significant changes
 
 ## License
 
@@ -218,11 +279,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- **ActivityWatch**: For providing the activity monitoring foundation
-- **Ollama**: For local LLM integration capabilities
-- **Tauri**: For enabling cross-platform desktop development
-- **React**: For the modern UI framework
-- **Tailwind CSS**: For the utility-first styling system
+- **ActivityWatch**: Activity monitoring foundation
+- **Ollama**: Local LLM integration capabilities  
+- **Tauri**: Cross-platform desktop development framework
+- **React**: Modern UI framework
+- **Tailwind CSS**: Utility-first styling system
 
 ---
 
