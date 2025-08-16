@@ -4,6 +4,8 @@
 
 ## Features
 
+<img width="1247" height="830" alt="image" src="https://github.com/user-attachments/assets/009ed6ab-1492-4abc-86c7-abb8acfe4b38" />
+
 ### Core Functionality
 - **Real-time Activity Monitoring**: Integrates with ActivityWatch for comprehensive computer usage tracking
 - **AI-Powered Analysis**: Uses local Ollama LLM for intelligent activity analysis and personalized insights
@@ -11,6 +13,7 @@
 - **System Tray Integration**: Runs in background with minimal interface disruption
 - **Smart Categorization**: Automatic app categorization with productivity scoring
 - **AFK Filtering**: Excludes idle periods for accurate productivity analysis
+(this part is AI generated, maybe I'll update it later...)
 
 ### Dashboard Features
 - **Activity Classification**: Real-time breakdown of productive vs. distraction time
@@ -143,15 +146,7 @@ The application provides four distinct productivity modes, each with unique timi
 5. **LLM Analysis**: Comprehensive prompt generation with user context integration
 
 ### Smart Categorization
-The system includes extensive app categorization:
-- **Work**: Development tools, productivity apps, office software
-- **Communication**: Email, messaging, video calls
-- **Entertainment**: Games, streaming, social media
-- **Development**: IDEs, terminals, version control
-- **Productivity**: Task management, note-taking, planning tools
-
-### Enhanced Data Processing
-- **Query API Integration**: Efficient server-side data processing
+The system uses LLMs for extensive app categorization
 - **Event Merging**: Consecutive events merged for better analysis
 - **Multi-timeframe Analysis**: Hour, day, and week-level insights
 - **Context Switching Detection**: Rapid app switching analysis
@@ -159,15 +154,7 @@ The system includes extensive app categorization:
 ## Configuration
 
 ### User Context
-Personalize AI responses through mode-specific contexts:
-
-```json
-{
-  "user_context": "General productivity context and preferences",
-  "study_focus": "Current study topic or subject",
-  "coach_task": "Active project or goal"
-}
-```
+Personalize AI responses through mode-specific contexts
 
 ### App Categories
 Customize app categorization through the Settings interface:
@@ -194,32 +181,9 @@ cargo clippy           # Rust linting
 cargo fmt --check      # Rust formatting check
 ```
 
-### Code Quality
-- **Rust**: Comprehensive error handling with `Result<T, String>` patterns
-- **TypeScript**: Strict typing with comprehensive interfaces
-- **React**: Modern functional components with hooks
-- **Tailwind**: Utility-first CSS with custom design system
-
-### Architecture Patterns
-- **Event-Driven**: Frontend-backend communication via Tauri events
-- **State Management**: Centralized app state with Arc/Mutex patterns
-- **Modular Design**: Clear separation of concerns in modules
-- **Error Handling**: Graceful degradation with fallback mechanisms
-
-## Performance Optimizations
-
-### Efficiency Features
-- **Query API**: Server-side ActivityWatch data processing
-- **Connection Pooling**: HTTP clients use `OnceLock` singleton pattern
-- **Caching**: Intelligent bucket information caching
-- **AFK Filtering**: Excludes idle periods to focus on active usage
-- **Background Processing**: Async timers for periodic analysis
-
 ### System Requirements
 - **Memory**: 50-100MB typical usage
-- **CPU**: Low background usage with periodic analysis spikes
-- **Storage**: <10MB for application, variable for activity logs
-- **Network**: Local connections only (ActivityWatch, Ollama)
+- **Storage**: <10MB for application, variable for activity logs, might be 10GB or more if you use a bigger model
 
 ## Troubleshooting
 
@@ -248,8 +212,7 @@ RUST_LOG=debug cargo run
 ## Data Privacy
 
 ### Local-First Design
-- **No Cloud Services**: All data stored locally
-- **Optional AI**: Ollama integration is optional and runs locally
+- **Local AI**: Ollama integration runs locally
 - **User Control**: Complete control over data collection and analysis
 - **No External APIs**: No data transmitted outside your machine
 
@@ -276,15 +239,3 @@ RUST_LOG=debug cargo run
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- **ActivityWatch**: Activity monitoring foundation
-- **Ollama**: Local LLM integration capabilities  
-- **Tauri**: Cross-platform desktop development framework
-- **React**: Modern UI framework
-- **Tailwind CSS**: Utility-first styling system
-
----
-
-**Companion Cube** - Your ADHD-friendly productivity companion 🧠✨
