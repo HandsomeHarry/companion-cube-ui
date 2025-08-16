@@ -68,8 +68,15 @@ pub async fn call_ollama_api(prompt: &str) -> Result<String, String> {
     let client = get_ollama_client();
     let config = crate::modules::utils::load_user_config_internal().await.unwrap_or_default();
     
-    // Log the model being used
-    eprintln!("[OLLAMA] Using model: {} (port: {})", config.ollama_model, config.ollama_port);
+    // Log comprehensive prompt information
+    eprintln!("\n[LLM PROMPT] ==================== START ====================");
+    eprintln!("[LLM PROMPT] Timestamp: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    eprintln!("[LLM PROMPT] Model: {} (port: {})", config.ollama_model, config.ollama_port);
+    eprintln!("[LLM PROMPT] Temperature: 0.3, Max tokens: 300");
+    eprintln!("[LLM PROMPT] System: You are a supportive ADHD productivity assistant...");
+    eprintln!("[LLM PROMPT] ==================== PROMPT ====================");
+    eprintln!("{}", prompt);
+    eprintln!("[LLM PROMPT] ==================== END ====================");
     
     let payload = serde_json::json!({
         "model": config.ollama_model,
@@ -78,7 +85,7 @@ pub async fn call_ollama_api(prompt: &str) -> Result<String, String> {
         "stream": false,
         "options": {
             "temperature": 0.3,
-            "num_predict": 300,
+            "num_predict": 500,
             "top_p": 0.9
         }
     });
@@ -129,6 +136,11 @@ pub async fn call_ollama_api(prompt: &str) -> Result<String, String> {
             }
         });
     }
+    
+    // Log the response
+    eprintln!("\n[LLM RESPONSE] ==================== START ====================");
+    eprintln!("{}", ai_response);
+    eprintln!("[LLM RESPONSE] ==================== END ====================\n");
     
     Ok(ai_response)
 }
@@ -200,9 +212,17 @@ ANALYSIS REQUIREMENTS:
 3. Assess workflow efficiency and coherence
 4. Provide actionable recommendations
 
+CURRENT STATE EVALUATION:
+Choose ONE state that best describes the user's activity:
+- productive: Focused work with minimal distractions, high output
+- moderate: Some work done but with occasional distractions
+- chilling: Relaxed browsing, taking breaks, casual activities
+- unproductive: Mostly distracted, entertainment-focused, procrastinating
+- afk: User is away from keyboard
+
 Return JSON:
 {{
-  "current_state": "flow|working|needs_nudge|afk",
+  "current_state": "productive|moderate|chilling|unproductive|afk",
   "focus_trend": "maintaining_focus|entering_focus|losing_focus|variable|none",
   "distraction_trend": "low|moderate|increasing|decreasing|high",
   "confidence": "high|medium|low",
@@ -234,6 +254,9 @@ Return JSON:
 
 /// Robust JSON parsing that can handle partial/malformed LLM responses
 pub fn parse_llm_response(response: &str) -> Result<LLMAnalysis, String> {
+    eprintln!("[LLM PARSER] Starting to parse response");
+    eprintln!("[LLM PARSER] Response length: {} chars", response.len());
+    
     // Clean the response text first to remove common prefixes that break JSON parsing
     let cleaned_response = response
         .trim()
@@ -251,8 +274,12 @@ pub fn parse_llm_response(response: &str) -> Result<LLMAnalysis, String> {
     
     // First try direct JSON parsing on cleaned response
     if let Ok(analysis) = serde_json::from_str::<LLMAnalysis>(cleaned_response) {
+        eprintln!("[LLM PARSER] Successfully parsed JSON directly");
+        eprintln!("[LLM PARSER] professional_summary: {}", analysis.professional_summary);
+        eprintln!("[LLM PARSER] primary_activity: {}", analysis.primary_activity);
         return Ok(analysis);
     }
+    eprintln!("[LLM PARSER] Direct JSON parsing failed, trying to extract JSON block");
     
     // If that fails, try to extract JSON from the response text
     let json_start = cleaned_response.find('{');
@@ -266,6 +293,7 @@ pub fn parse_llm_response(response: &str) -> Result<LLMAnalysis, String> {
     }
     
     // If JSON parsing fails, try to extract individual fields manually
+    eprintln!("[LLM PARSER] Falling back to field extraction");
     let current_state = extract_field(cleaned_response, "current_state").unwrap_or("working".to_string());
     let focus_trend = extract_field(cleaned_response, "focus_trend").unwrap_or("variable".to_string());
     let distraction_trend = extract_field(cleaned_response, "distraction_trend").unwrap_or("moderate".to_string());
@@ -273,7 +301,10 @@ pub fn parse_llm_response(response: &str) -> Result<LLMAnalysis, String> {
     let primary_activity = extract_field(cleaned_response, "primary_activity")
         .unwrap_or("Unable to determine primary activity".to_string());
     let professional_summary = extract_field(cleaned_response, "professional_summary")
-        .unwrap_or(default_professional_summary());
+        .unwrap_or_else(|| {
+            eprintln!("[LLM PARSER] Failed to extract professional_summary, using default");
+            default_professional_summary()
+        });
     let work_score = extract_field(cleaned_response, "work_score")
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(50);

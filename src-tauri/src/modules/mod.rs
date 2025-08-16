@@ -10,6 +10,10 @@ pub mod database;
 pub mod tauri_commands;
 pub mod utils;
 pub mod advanced_analyzer;
+pub mod default_categories;
+pub mod productivity_calc;
+pub mod simplified_processor;
+pub mod enhanced_processor;
 
 // Re-exports for convenience
 // pub use pattern_analyzer::PatternAnalyzer;

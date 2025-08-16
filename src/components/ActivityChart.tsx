@@ -1,5 +1,6 @@
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Label } from 'recharts'
 import { useState, useEffect } from 'react'
+import { colors, semanticColors, typography } from '../utils/designSystem'
 
 interface ActivityClassification {
   work: number
@@ -15,16 +16,32 @@ interface ActivityChartProps {
 const getChartData = (classification?: ActivityClassification | null) => {
   if (!classification) {
     return [
-      { name: 'Work', value: 0, color: '#14B8A6' },
-      { name: 'Communication', value: 0, color: '#06B6D4' },
-      { name: 'Distractions', value: 0, color: '#F97316' }
+      { name: 'Work', value: 0, color: '#10B981' },
+      { name: 'Communication', value: 0, color: '#F59E0B' },
+      { name: 'Distractions', value: 0, color: '#EF4444' }
     ]
   }
 
+  const total = classification.work + classification.communication + classification.distraction
   return [
-    { name: 'Work', value: classification.work, color: '#14B8A6' },
-    { name: 'Communication', value: classification.communication, color: '#06B6D4' },
-    { name: 'Distractions', value: classification.distraction, color: '#F97316' }
+    { 
+      name: 'Productive Work', 
+      value: classification.work, 
+      percentage: total > 0 ? Math.round((classification.work / total) * 100) : 0,
+      color: '#10B981' // green
+    },
+    { 
+      name: 'Communication', 
+      value: classification.communication, 
+      percentage: total > 0 ? Math.round((classification.communication / total) * 100) : 0,
+      color: '#F59E0B' // yellow
+    },
+    { 
+      name: 'Distractions', 
+      value: classification.distraction, 
+      percentage: total > 0 ? Math.round((classification.distraction / total) * 100) : 0,
+      color: '#EF4444' // red
+    }
   ]
 }
 
@@ -41,42 +58,84 @@ function ActivityChart({ isDarkMode, classification }: ActivityChartProps) {
   }, [])
 
   const data = getChartData(classification)
+  const hasData = data.some(item => item.value > 0)
+
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload
+      return (
+        <div className="bg-gray-800 text-white p-2 rounded-lg shadow-lg border border-gray-700">
+          <p className="font-medium text-sm">{data.name}</p>
+          <p className="text-xs mt-1">{data.percentage}% • {data.value} min</p>
+        </div>
+      )
+    }
+    return null
+  }
+
+  const CustomLabel = () => {
+    if (!hasData) return null
+    const topCategory = data.reduce((prev, current) => 
+      prev.value > current.value ? prev : current
+    )
+    return (
+      <text 
+        x="50%" 
+        y="50%" 
+        textAnchor="middle" 
+        dominantBaseline="middle"
+        style={{ fontSize: typography.h2.fontSize, fontWeight: typography.h2.fontWeight }}
+        fill={isDarkMode ? '#e5e7eb' : '#111827'}
+      >
+        {topCategory.percentage}%
+      </text>
+    )
+  }
 
   return (
-    <div className="h-64">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={data}
-            cx="50%"
-            cy="50%"
-            innerRadius={50}
-            outerRadius={90}
-            paddingAngle={5}
-            dataKey="value"
-            animationBegin={0}
-            animationDuration={shouldAnimate ? 800 : 0}
-            isAnimationActive={shouldAnimate}
-          >
-            {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
-            ))}
-          </Pie>
-          <Tooltip 
-            contentStyle={{
-              backgroundColor: '#334155',
-              border: '1px solid #475569',
-              borderRadius: '8px',
-              color: '#E2E8F0'
-            }}
-          />
-          <Legend 
-            wrapperStyle={{
-              color: '#E2E8F0'
-            }}
-          />
-        </PieChart>
-      </ResponsiveContainer>
+    <div className="flex flex-col h-full">
+      {!hasData ? (
+        <div className="h-64 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-gray-500 text-sm mb-2">No activity data yet</p>
+            <p className="text-gray-400 text-xs">Start tracking to see your productivity breakdown</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="h-48 relative">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <defs>
+                  {/* Remove patterns - use solid colors only */}
+                </defs>
+                <Pie
+                  data={data}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={40}
+                  outerRadius={80}
+                  paddingAngle={3}
+                  dataKey="value"
+                  animationBegin={0}
+                  animationDuration={shouldAnimate ? 800 : 0}
+                  isAnimationActive={shouldAnimate}
+                >
+                  {data.map((entry, index) => (
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={entry.color}
+                      className="hover:opacity-80 transition-opacity cursor-pointer"
+                    />
+                  ))}
+                  <Label content={<CustomLabel />} position="center" />
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
     </div>
   )
 }

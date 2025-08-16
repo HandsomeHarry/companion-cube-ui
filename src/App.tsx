@@ -5,6 +5,7 @@ import MainContent from './components/MainContent'
 import Sidebar from './components/Sidebar'
 import Settings from './components/Settings'
 import History from './components/History'
+// import Toast, { ToastMessage } from './components/Toast' // Removed toast notifications
 import { getThemeClasses } from './utils/theme'
 
 interface ConnectionStatus {
@@ -84,6 +85,7 @@ function App() {
   const [isGeneratingDaily, setIsGeneratingDaily] = useState(false)
   const [activityClassification, setActivityClassification] = useState<ActivityClassification | null>(null)
   const [isClassifying, setIsClassifying] = useState(false)
+  // const [toastMessages, setToastMessages] = useState<ToastMessage[]>([]) // Removed toast notifications
 
   useEffect(() => {
     if (isDarkMode) {
@@ -209,12 +211,30 @@ function App() {
     setIsDarkMode(!isDarkMode)
   }
 
+  // Removed toast notification functions
+
   const handleModeChange = async (mode: string) => {
     try {
       await invoke('set_mode', { mode })
       setCurrentMode(mode)
+      
+      const modeNames: Record<string, string> = {
+        'ghost': 'Ghost Mode',
+        'chill': 'Chill Mode',
+        'study_buddy': 'Study Mode',
+        'coach': 'Coach Mode'
+      }
+      // showToast('success', `Switched to ${modeNames[mode] || mode}`) // Removed toast
+      
+      // For study and coach modes, generate summary after short delay
+      if (mode === 'study_buddy' || mode === 'coach') {
+        setTimeout(() => {
+          handleGenerateHourly()
+        }, 100)
+      }
     } catch (error) {
       console.error('Failed to set mode:', error)
+      console.error('Failed to change mode') // Removed toast
     }
   }
 
@@ -226,8 +246,10 @@ function App() {
       
       // Auto-generate activity classification when hourly summary is generated
       handleClassifyActivities()
+      // showToast('success', 'Activity summary generated') // Removed toast
     } catch (error) {
       console.error('Failed to generate hourly summary:', error)
+      console.error('Failed to generate summary') // Removed toast
     } finally {
       setIsGeneratingHourly(false)
     }
@@ -255,8 +277,10 @@ function App() {
       const savedConfig = await invoke('load_user_config')
       console.log('Verified saved config:', savedConfig)
       setUserConfig(savedConfig as UserConfig)
+      // showToast('success', 'Configuration saved') // Removed toast
     } catch (error) {
       console.error('Failed to save configuration:', error)
+      console.error('Failed to save configuration') // Removed toast
     }
   }
 
@@ -305,8 +329,8 @@ function App() {
   const themeClasses = getThemeClasses(currentMode, isDarkMode)
 
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'dark' : ''}`}>
-      <div className={`flex h-screen ${themeClasses.background}`}>
+    <div className={`h-screen overflow-hidden ${isDarkMode ? 'dark' : ''}`}>
+      <div className={`flex h-screen overflow-hidden ${themeClasses.background}`}>
         <Sidebar 
           currentMode={currentMode} 
           onModeChange={handleModeChange}
@@ -317,6 +341,7 @@ function App() {
         />
         {renderContent()}
       </div>
+      {/* Toast notifications removed */}
     </div>
   )
 }

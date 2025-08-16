@@ -1,7 +1,8 @@
-import { Sun, Moon, RefreshCw, Eye, Cpu } from 'lucide-react'
+import { Sun, Moon, RefreshCw, Eye, Cpu, TrendingUp, AlertCircle, Info } from 'lucide-react'
 import ActivityChart from './ActivityChart'
 import Terminal from './Terminal'
 import { getThemeClasses } from '../utils/theme'
+import { spacing, typography, stateLabels, semanticColors, elevation, borderRadius, transitions } from '../utils/designSystem'
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 
@@ -173,10 +174,10 @@ function MainContent({
 
   const themeClasses = getThemeClasses(currentMode, isDarkMode)
 
-  // Helper function to clean up state display
-  const cleanStateDisplay = (state: string | undefined) => {
-    if (!state) return 'needs_nudge'
-    return state.replace(/^\[|\]$/g, '') || 'needs_nudge'
+  // Helper function to get human-readable state
+  const getStateInfo = (state: string | undefined) => {
+    const cleanState = state?.replace(/^\[|\]$/g, '') || 'unknown'
+    return stateLabels[cleanState as keyof typeof stateLabels] || stateLabels.unknown
   }
 
   const getStateCardTitle = (mode: string) => {
@@ -188,12 +189,12 @@ function MainContent({
   }
 
   return (
-    <div className={`flex-1 ${themeClasses.background} h-screen flex flex-col`}>
+    <div className={`flex-1 ${themeClasses.background} h-full overflow-hidden flex flex-col`}>
       {/* Header */}
-      <div className={`p-6 ${themeClasses.background} ${themeClasses.border} border-b flex-shrink-0`}>
+      <div className={`p-4 ${themeClasses.surface} ${themeClasses.border} border-b flex-shrink-0`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <h1 className={`text-3xl font-bold ${themeClasses.textPrimary}`}>
+            <h1 style={{ fontSize: typography.h1.fontSize, fontWeight: typography.h1.fontWeight, lineHeight: typography.h1.lineHeight }} className={`${themeClasses.textPrimary}`}>
               {getModeDisplayName(currentMode)}
             </h1>
           </div>
@@ -217,12 +218,12 @@ function MainContent({
             {/* Theme Toggle */}
             <button
               onClick={onToggleTheme}
-              className={`w-10 h-10 rounded-lg ${isDarkMode ? themeClasses.surfaceSecondary : 'bg-gray-200 hover:bg-gray-300'} transition-colors flex items-center justify-center`}
+              className={`w-8 h-8 rounded-full ${isDarkMode ? 'bg-white/10 hover:bg-white/20' : 'bg-gray-200 hover:bg-gray-300'} transition-all duration-200 flex items-center justify-center`}
             >
               {isDarkMode ? (
-                <Sun className="w-4 h-4 text-slate-400" />
+                <Sun className="w-4 h-4 text-gray-400" />
               ) : (
-                <Moon className="w-4 h-4 text-slate-400" />
+                <Moon className="w-4 h-4 text-gray-600" />
               )}
             </button>
           </div>
@@ -230,17 +231,17 @@ function MainContent({
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 p-8 overflow-y-auto min-h-0">
-        <div className="space-y-6 pb-6">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0" style={{ padding: spacing.md }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md, paddingBottom: spacing.md }} className="animate-fade-in">
           {/* Mode-specific Cards Layout */}
           {currentMode === 'study_buddy' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Left Column - Study Mode */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* Study Focus - First Card */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary} mb-1`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary} mb-1`}>
                       So we're studying for?
                     </h3>
                     <p className={`text-sm ${themeClasses.textSecondary}`}>
@@ -262,24 +263,30 @@ function MainContent({
                   
                   <button
                     onClick={onSaveConfig}
-                    className={`px-4 py-2 text-white rounded-lg transition-colors text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
-                    style={{ backgroundColor: themeClasses.primary }}
+                    className={`px-4 py-2 text-white rounded-lg transition-all duration-150 text-sm font-semibold hover:scale-105 ${isDarkMode ? '' : 'shadow-sm'}`}
+                    style={{ 
+                      backgroundColor: themeClasses.primary,
+                      backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)'
+                    }}
                   >
                     Save Context
                   </button>
                 </div>
 
                 {/* Daily Summary */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary}`}>
                       Daily Summary
                     </h3>
                     <button
                       onClick={onGenerateDaily}
                       disabled={isGeneratingDaily}
-                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
-                      style={{ backgroundColor: themeClasses.primary }}
+                      className={`px-4 py-2 text-white rounded-lg transition-all duration-150 disabled:opacity-50 flex items-center space-x-2 text-sm font-semibold hover:scale-105 ${isDarkMode ? '' : 'shadow-sm'}`}
+                      style={{ 
+                        backgroundColor: themeClasses.primary,
+                        backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)'
+                      }}
                     >
                       {isGeneratingDaily ? (
                         <RefreshCw className="w-3 h-3 animate-spin" />
@@ -289,34 +296,48 @@ function MainContent({
                     </button>
                   </div>
                   
-                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-3 overflow-y-auto min-h-[120px]`}>
-                    <p className={`${themeClasses.textPrimary} leading-relaxed text-sm`}>
-                      {dailySummary?.summary || 'Loading daily summary...'}
-                    </p>
+                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-4 overflow-y-auto min-h-[120px]`}>
+                    {isGeneratingDaily ? (
+                      <div className="space-y-2">
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '85%' }} />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '95%' }} />
+                      </div>
+                    ) : (
+                      <p className={`${themeClasses.textPrimary} leading-relaxed text-sm animate-fade-in`}>
+                        {dailySummary?.summary || 'Generate a daily summary to see your productivity overview'}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Right Column - Study Mode */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* 5-minute State - Second Card */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h3 className={`text-lg font-semibold ${themeClasses.textPrimary} mb-1`}>
+                      <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary} mb-1`}>
                         {currentMode === 'study_buddy' ? '5-minute State' : 
                          currentMode === 'coach' ? '15-minute State' : 
                          'Hourly State'}
                       </h3>
-                      <p className={`text-sm ${themeClasses.textSecondary}`}>
-                        {cleanStateDisplay(hourlySummary?.current_state)}
-                      </p>
+                      <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white/[0.08]">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getStateInfo(hourlySummary?.current_state).color }} />
+                        <p className={`text-xs font-medium ${themeClasses.textSecondary} uppercase tracking-wider`}>
+                          {getStateInfo(hourlySummary?.current_state).label}
+                        </p>
+                      </div>
                     </div>
                     <button
                       onClick={onGenerateHourly}
                       disabled={isGeneratingHourly}
-                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
-                      style={{ backgroundColor: themeClasses.primary }}
+                      className={`px-4 py-2 text-white rounded-lg transition-all duration-150 disabled:opacity-50 flex items-center space-x-2 text-sm font-semibold hover:scale-105 ${isDarkMode ? '' : 'shadow-sm'}`}
+                      style={{ 
+                        backgroundColor: themeClasses.primary,
+                        backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)'
+                      }}
                     >
                       {isGeneratingHourly ? (
                         <RefreshCw className="w-3 h-3 animate-spin" />
@@ -326,46 +347,62 @@ function MainContent({
                     </button>
                   </div>
                   
-                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-3 mb-3 overflow-y-auto min-h-[120px]`}>
-                    <p className={`${themeClasses.textPrimary} leading-relaxed text-sm`}>
-                      {hourlySummary?.summary || 'Loading activity summary...'}
-                    </p>
+                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-4 mb-3 overflow-y-auto min-h-[120px]`}>
+                    {isGeneratingHourly ? (
+                      <div className="space-y-2">
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '90%' }} />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '75%' }} />
+                      </div>
+                    ) : (
+                      <p className={`${themeClasses.textPrimary} leading-relaxed text-sm animate-fade-in`}>
+                        {hourlySummary?.summary || 'Click generate to analyze your recent activity'}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="flex justify-between items-center">
                     <span className={`text-sm ${themeClasses.textSecondary}`}>
                       Last Updated: {hourlySummary?.last_updated || '04:32'}
                     </span>
-                    <span className={`text-lg font-bold`} style={{ color: themeClasses.accent }}>
-                      {hourlySummary?.focus_score || 45}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-3xl font-bold tabular-nums`} style={{ color: themeClasses.accent }}>
+                        {hourlySummary?.focus_score || 45}
+                      </span>
+                      <div className="group relative">
+                        <Info className="w-4 h-4 text-gray-400 cursor-help" />
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-48 p-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                          Productivity score based on app usage patterns
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Work vs Distractions */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary}`}>
                       Work vs Distractions
                     </h3>
                     {isClassifying && (
                       <RefreshCw className="w-4 h-4 animate-spin text-slate-400" />
                     )}
                   </div>
-                  <div className="h-64">
+                  <div className="flex-1">
                     <ActivityChart isDarkMode={isDarkMode} classification={getActivityClassification()} />
                   </div>
                 </div>
               </div>
             </div>
           ) : currentMode === 'coach' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Left Column - Coach Mode */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* Coach Task - First Card */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary} mb-1`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary} mb-1`}>
                       Let's get it done.
                     </h3>
                     <p className={`text-sm ${themeClasses.textSecondary}`}>
@@ -386,35 +423,38 @@ function MainContent({
                   
                   <button
                     onClick={onSaveConfig}
-                    className={`px-4 py-2 text-white rounded-lg transition-colors text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
-                    style={{ backgroundColor: themeClasses.primary }}
+                    className={`px-4 py-2 text-white rounded-lg transition-all duration-150 text-sm font-semibold hover:scale-105 ${isDarkMode ? '' : 'shadow-sm'}`}
+                    style={{ 
+                      backgroundColor: themeClasses.primary,
+                      backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)'
+                    }}
                   >
                     Save Context
                   </button>
                 </div>
 
                 {/* To-do List - Second Card */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary}`}>
                       To-do List
                     </h3>
                   </div>
                   
-                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-3 overflow-y-auto min-h-[120px]`}>
+                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-4 overflow-y-auto min-h-[120px]`}>
                     <div className="space-y-2">
                       {/* Placeholder todo items - these should be loaded from backend */}
-                      <div className="flex items-center space-x-2">
-                        <input type="checkbox" className="rounded" />
-                        <span className={`text-sm ${themeClasses.textPrimary}`}>Complete project research</span>
+                      <div className="flex items-center space-x-2 group">
+                        <input type="checkbox" className="rounded border-gray-400 text-orange-500 focus:ring-orange-500" />
+                        <span className={`text-sm ${themeClasses.textPrimary} group-hover:text-opacity-80`}>Complete project research</span>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <input type="checkbox" className="rounded" />
-                        <span className={`text-sm ${themeClasses.textPrimary}`}>Review progress from yesterday</span>
+                      <div className="flex items-center space-x-2 group">
+                        <input type="checkbox" className="rounded border-gray-400 text-orange-500 focus:ring-orange-500" />
+                        <span className={`text-sm ${themeClasses.textPrimary} group-hover:text-opacity-80`}>Review progress from yesterday</span>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <input type="checkbox" className="rounded" />
-                        <span className={`text-sm ${themeClasses.textPrimary}`}>Plan next steps</span>
+                      <div className="flex items-center space-x-2 group">
+                        <input type="checkbox" className="rounded border-gray-400 text-orange-500 focus:ring-orange-500" />
+                        <span className={`text-sm ${themeClasses.textPrimary} group-hover:text-opacity-80`}>Plan next steps</span>
                       </div>
                     </div>
                   </div>
@@ -422,12 +462,12 @@ function MainContent({
               </div>
 
               {/* Right Column - Coach Mode */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* 15-minute Summary - Third Card */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h3 className={`text-lg font-semibold ${themeClasses.textPrimary} mb-1`}>
+                      <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary} mb-1`}>
                         15-minute Summary
                       </h3>
                       <p className={`text-sm ${themeClasses.textSecondary}`}>
@@ -437,8 +477,11 @@ function MainContent({
                     <button
                       onClick={onGenerateHourly}
                       disabled={isGeneratingHourly}
-                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
-                      style={{ backgroundColor: themeClasses.primary }}
+                      className={`px-4 py-2 text-white rounded-lg transition-all duration-150 disabled:opacity-50 flex items-center space-x-2 text-sm font-semibold hover:scale-105 ${isDarkMode ? '' : 'shadow-sm'}`}
+                      style={{ 
+                        backgroundColor: themeClasses.primary,
+                        backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)'
+                      }}
                     >
                       {isGeneratingHourly ? (
                         <RefreshCw className="w-3 h-3 animate-spin" />
@@ -448,33 +491,49 @@ function MainContent({
                     </button>
                   </div>
                   
-                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-3 mb-3 overflow-y-auto min-h-[120px]`}>
-                    <p className={`${themeClasses.textPrimary} leading-relaxed text-sm`}>
-                      {hourlySummary?.summary || 'Loading activity summary...'}
-                    </p>
+                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-4 mb-3 overflow-y-auto min-h-[120px]`}>
+                    {isGeneratingHourly ? (
+                      <div className="space-y-2">
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '90%' }} />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '75%' }} />
+                      </div>
+                    ) : (
+                      <p className={`${themeClasses.textPrimary} leading-relaxed text-sm animate-fade-in`}>
+                        {hourlySummary?.summary || 'Click generate to analyze your recent activity'}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="flex justify-between items-center">
                     <span className={`text-sm ${themeClasses.textSecondary}`}>
                       Last Updated: {hourlySummary?.last_updated || '04:32'}
                     </span>
-                    <span className={`text-lg font-bold`} style={{ color: themeClasses.accent }}>
-                      {hourlySummary?.focus_score || 45}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-3xl font-bold tabular-nums`} style={{ color: themeClasses.accent }}>
+                        {hourlySummary?.focus_score || 45}
+                      </span>
+                      <div className="group relative">
+                        <Info className="w-4 h-4 text-gray-400 cursor-help" />
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-48 p-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                          Productivity score based on app usage patterns
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Work vs Distractions */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary}`}>
                       Work vs Distractions
                     </h3>
                     {isClassifying && (
                       <RefreshCw className="w-4 h-4 animate-spin text-slate-400" />
                     )}
                   </div>
-                  <div className="h-64">
+                  <div className="flex-1">
                     <ActivityChart isDarkMode={isDarkMode} classification={getActivityClassification()} />
                   </div>
                 </div>
@@ -482,25 +541,31 @@ function MainContent({
             </div>
           ) : (
             /* Default layout for ghost and chill modes */
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Left Column */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* Hourly State */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h3 className={`text-lg font-semibold ${themeClasses.textPrimary} mb-1`}>
+                      <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary} mb-1`}>
                         {getStateCardTitle(currentMode)}
                       </h3>
-                      <p className={`text-sm ${themeClasses.textSecondary}`}>
-                        {cleanStateDisplay(hourlySummary?.current_state)}
-                      </p>
+                      <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white/[0.08]">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getStateInfo(hourlySummary?.current_state).color }} />
+                        <p className={`text-xs font-medium ${themeClasses.textSecondary} uppercase tracking-wider`}>
+                          {getStateInfo(hourlySummary?.current_state).label}
+                        </p>
+                      </div>
                     </div>
                     <button
                       onClick={onGenerateHourly}
                       disabled={isGeneratingHourly}
-                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
-                      style={{ backgroundColor: themeClasses.primary }}
+                      className={`px-4 py-2 text-white rounded-lg transition-all duration-150 disabled:opacity-50 flex items-center space-x-2 text-sm font-semibold hover:scale-105 ${isDarkMode ? '' : 'shadow-sm'}`}
+                      style={{ 
+                        backgroundColor: themeClasses.primary,
+                        backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)'
+                      }}
                     >
                       {isGeneratingHourly ? (
                         <RefreshCw className="w-3 h-3 animate-spin" />
@@ -510,33 +575,52 @@ function MainContent({
                     </button>
                   </div>
                   
-                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-3 mb-3 overflow-y-auto min-h-[120px]`}>
-                    <p className={`${themeClasses.textPrimary} leading-relaxed text-sm`}>
-                      {hourlySummary?.summary || 'Loading activity summary...'}
-                    </p>
+                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-4 mb-3 overflow-y-auto min-h-[120px]`}>
+                    {isGeneratingHourly ? (
+                      <div className="space-y-2">
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '90%' }} />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '75%' }} />
+                      </div>
+                    ) : (
+                      <p className={`${themeClasses.textPrimary} leading-relaxed text-sm animate-fade-in`}>
+                        {hourlySummary?.summary || 'Click generate to analyze your recent activity'}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="flex justify-between items-center">
                     <span className={`text-sm ${themeClasses.textSecondary}`}>
                       Last Updated: {hourlySummary?.last_updated || '04:32'}
                     </span>
-                    <span className={`text-lg font-bold`} style={{ color: themeClasses.accent }}>
-                      {hourlySummary?.focus_score || 45}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className={`text-3xl font-bold tabular-nums`} style={{ color: themeClasses.accent }}>
+                        {hourlySummary?.focus_score || 45}
+                      </span>
+                      <div className="group relative">
+                        <Info className="w-4 h-4 text-gray-400 cursor-help" />
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-48 p-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                          Productivity score based on app usage patterns
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Daily Summary */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary}`}>
                       Daily Summary
                     </h3>
                     <button
                       onClick={onGenerateDaily}
                       disabled={isGeneratingDaily}
-                      className={`px-4 py-2 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
-                      style={{ backgroundColor: themeClasses.primary }}
+                      className={`px-4 py-2 text-white rounded-lg transition-all duration-150 disabled:opacity-50 flex items-center space-x-2 text-sm font-semibold hover:scale-105 ${isDarkMode ? '' : 'shadow-sm'}`}
+                      style={{ 
+                        backgroundColor: themeClasses.primary,
+                        backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)'
+                      }}
                     >
                       {isGeneratingDaily ? (
                         <RefreshCw className="w-3 h-3 animate-spin" />
@@ -546,35 +630,43 @@ function MainContent({
                     </button>
                   </div>
                   
-                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-3 overflow-y-auto min-h-[120px]`}>
-                    <p className={`${themeClasses.textPrimary} leading-relaxed text-sm`}>
-                      {dailySummary?.summary || 'Loading daily summary...'}
-                    </p>
+                  <div className={`flex-1 ${themeClasses.surfaceSecondary} rounded-lg p-4 overflow-y-auto min-h-[120px]`}>
+                    {isGeneratingDaily ? (
+                      <div className="space-y-2">
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '85%' }} />
+                        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded animate-pulse" style={{ width: '95%' }} />
+                      </div>
+                    ) : (
+                      <p className={`${themeClasses.textPrimary} leading-relaxed text-sm animate-fade-in`}>
+                        {dailySummary?.summary || 'Generate a daily summary to see your productivity overview'}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Right Column */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* Work vs Distractions */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary}`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary}`}>
                       Work vs Distractions
                     </h3>
                     {isClassifying && (
                       <RefreshCw className="w-4 h-4 animate-spin text-slate-400" />
                     )}
                   </div>
-                  <div className="h-64">
+                  <div className="flex-1">
                     <ActivityChart isDarkMode={isDarkMode} classification={getActivityClassification()} />
                   </div>
                 </div>
 
                 {/* Context Input - Mode-specific */}
-                <div className={`${themeClasses.surface} rounded-xl shadow-lg p-4 flex flex-col`}>
+                <div className={`${themeClasses.surface} rounded-xl p-5 flex flex-col ${isDarkMode ? 'shadow-lg border border-white/[0.08]' : 'shadow-md'}`}>
                   <div className="mb-3">
-                    <h3 className={`text-lg font-semibold ${themeClasses.textPrimary} mb-1`}>
+                    <h3 style={{ fontSize: typography.h3.fontSize, fontWeight: typography.h3.fontWeight, lineHeight: typography.h3.lineHeight }} className={`${themeClasses.textPrimary} mb-1`}>
                       {getContextTitle(currentMode)}
                     </h3>
                     <p className={`text-sm ${themeClasses.textSecondary}`}>
@@ -595,8 +687,11 @@ function MainContent({
                   
                   <button
                     onClick={onSaveConfig}
-                    className={`px-4 py-2 text-white rounded-lg transition-colors text-sm ${isDarkMode ? '' : 'shadow-sm'}`}
-                    style={{ backgroundColor: themeClasses.primary }}
+                    className={`px-4 py-2 text-white rounded-lg transition-all duration-150 text-sm font-semibold hover:scale-105 ${isDarkMode ? '' : 'shadow-sm'}`}
+                    style={{ 
+                      backgroundColor: themeClasses.primary,
+                      backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, transparent 100%)'
+                    }}
                   >
                     Save Context
                   </button>

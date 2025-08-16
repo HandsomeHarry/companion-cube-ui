@@ -42,11 +42,11 @@ export const getModeColors = (mode: string, isDarkMode: boolean): ThemeColors =>
 
   return {
     ...colors,
-    background: isDarkMode ? '#0F172A' : '#F8FAFC',
-    surface: isDarkMode ? '#1E293B' : '#FFFFFF',
-    text: isDarkMode ? '#E2E8F0' : '#1E293B',
-    textSecondary: isDarkMode ? '#94A3B8' : '#64748B',
-    border: isDarkMode ? '#334155' : '#E2E8F0'
+    background: isDarkMode ? '#111827' : '#F8FAFC',
+    surface: isDarkMode ? '#1F2937' : '#FFFFFF',
+    text: isDarkMode ? '#e2e8f0' : '#1E293B',
+    textSecondary: isDarkMode ? '#a0aec0' : '#64748B',
+    border: isDarkMode ? 'rgba(255,255,255,0.08)' : '#E2E8F0'
   }
 }
 
@@ -61,17 +61,17 @@ export const getThemeClasses = (mode: string, isDarkMode: boolean) => {
       ':hover': { backgroundColor: colors.primaryHover }
     },
     
-    // Background styles
-    background: isDarkMode ? 'bg-slate-900' : 'bg-gray-50',
-    surface: isDarkMode ? 'bg-slate-800' : 'bg-white',
-    surfaceSecondary: isDarkMode ? 'bg-slate-700' : 'bg-gray-100',
+    // Background styles - new dark theme
+    background: isDarkMode ? 'bg-[#111827]' : 'bg-gray-50',
+    surface: isDarkMode ? 'bg-[#1F2937]' : 'bg-white',
+    surfaceSecondary: isDarkMode ? 'bg-[#374151]' : 'bg-gray-100',
     
     // Text styles
-    textPrimary: isDarkMode ? 'text-slate-200' : 'text-gray-900',
-    textSecondary: isDarkMode ? 'text-slate-400' : 'text-gray-600',
+    textPrimary: isDarkMode ? 'text-[#e2e8f0]' : 'text-gray-900',
+    textSecondary: isDarkMode ? 'text-[#a0aec0]' : 'text-gray-600',
     
     // Border styles
-    border: isDarkMode ? 'border-slate-700' : 'border-gray-200',
+    border: isDarkMode ? 'border-white/[0.08]' : 'border-gray-200',
     
     // Mode-specific colors
     accent: colors.accent,

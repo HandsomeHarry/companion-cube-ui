@@ -224,7 +224,7 @@ function Settings({ isDarkMode, currentMode, connectionStatus }: SettingsProps) 
   )
 
   return (
-    <div className={`flex-1 ${themeClasses.background} h-screen flex flex-col`}>
+    <div className={`flex-1 ${themeClasses.background} h-full overflow-hidden flex flex-col`}>
       {/* Header */}
       <div className={`p-6 ${themeClasses.background} ${themeClasses.border} border-b flex-shrink-0`}>
         <div className="flex items-center space-x-3">
@@ -233,7 +233,7 @@ function Settings({ isDarkMode, currentMode, connectionStatus }: SettingsProps) 
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-8 overflow-y-auto min-h-0">
+      <div className="flex-1 p-8 overflow-y-auto overflow-x-hidden min-h-0">
         <div className="space-y-8 pb-8 max-w-4xl mx-auto">
 
           {/* Port Configuration */}

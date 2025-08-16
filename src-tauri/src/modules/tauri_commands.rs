@@ -47,13 +47,8 @@ pub async fn set_mode(mode: String, state: State<'_, AppState>, app: AppHandle) 
         times.remove(&mode);
     }
     
-    // Only generate immediate summary for study mode since it needs context
-    if mode == "study_buddy" {
-        send_log(&app, "info", "Study mode activated - generating initial summary");
-        if let Err(e) = crate::modules::mode_handlers::handle_mode_specific_logic(&app, &mode, &state).await {
-            send_log(&app, "error", &format!("Failed to generate study mode summary: {}", e));
-        }
-    }
+    // Don't generate immediate summary - let frontend request it after UI loads
+    send_log(&app, "info", &format!("Mode switched to {} - summary generation will be triggered by frontend", mode));
     
     // Mode switch completed
     Ok(())

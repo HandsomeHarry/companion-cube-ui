@@ -9,6 +9,6 @@
   "study_notification_prompt": "Looks like you got distracted from studying. Let's get back on track!",
   "coach_notification_prompt": "Time to check your progress! Please review and update your todo list.",
   "notifications_enabled": true,
-  "ollama_model": "mistral:latest",
-  "keep_model_loaded": true
+  "ollama_model": "gemma3:27b",
+  "keep_model_loaded": false
 }

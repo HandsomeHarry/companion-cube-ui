@@ -118,10 +118,31 @@ impl AppState {
             return Ok(());
         }
         
-        // Only categorize up to 10 apps at a time to avoid overwhelming the LLM
-        let apps_to_categorize: Vec<_> = uncategorized.into_iter().take(10).collect();
+        eprintln!("[CATEGORIZATION] Found {} uncategorized apps", uncategorized.len());
         
-        if crate::modules::ai_integration::test_ollama_connection().await {
+        // Use default categories first
+        let mut categorized_count = 0;
+        for app_name in uncategorized.iter() {
+            if let Some((category, subcategory, score)) = crate::modules::default_categories::categorize_app(app_name) {
+                let _ = db.set_app_category(
+                    app_name,
+                    category,
+                    subcategory,
+                    Some(score),
+                    true // auto_detected
+                ).await;
+                categorized_count += 1;
+                eprintln!("[CATEGORIZATION] {} -> {} (score: {})", app_name, category, score);
+            }
+        }
+        
+        eprintln!("[CATEGORIZATION] Categorized {} apps using defaults", categorized_count);
+        
+        // Only use LLM for truly unknown apps
+        let still_uncategorized = db.get_uncategorized_apps().await?;
+        let apps_to_categorize: Vec<_> = still_uncategorized.into_iter().take(5).collect();
+        
+        if !apps_to_categorize.is_empty() && crate::modules::ai_integration::test_ollama_connection().await {
             let prompt = format!(
                 "Categorize these applications into one of these categories: work, communication, entertainment, development, productivity, system, other.
                 
@@ -165,12 +186,14 @@ Example:
                                     ).await;
                                 }
                             }
-                            // Silent categorization
+                            eprintln!("[CATEGORIZATION] LLM categorized {} additional apps", obj.len());
                         }
                     }
                 }
                 Err(_) => {} // Silent failure - will retry next cycle
             }
+        } else if apps_to_categorize.is_empty() {
+            eprintln!("[CATEGORIZATION] All apps categorized successfully");
         }
         
         Ok(())

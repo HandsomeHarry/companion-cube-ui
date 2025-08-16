@@ -219,7 +219,7 @@ function History({ isDarkMode, currentMode }: HistoryProps) {
   }
 
   return (
-    <div className={`flex-1 ${themeClasses.background} h-screen flex flex-col`}>
+    <div className={`flex-1 ${themeClasses.background} h-full overflow-hidden flex flex-col`}>
       {/* Header */}
       <div className={`p-6 ${themeClasses.background} ${themeClasses.border} border-b flex-shrink-0`}>
         <div className="flex items-center justify-between">
@@ -268,7 +268,7 @@ function History({ isDarkMode, currentMode }: HistoryProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 p-8 overflow-y-auto min-h-0">
+      <div className="flex-1 p-8 overflow-y-auto overflow-x-hidden min-h-0">
         {/* Sync Section */}
         <div className="mb-6">
           <div className="flex items-center justify-between">
@@ -303,9 +303,13 @@ function History({ isDarkMode, currentMode }: HistoryProps) {
         
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Activity className={`w-12 h-12 ${themeClasses.textSecondary} animate-spin mx-auto mb-4`} />
-              <p className={themeClasses.textSecondary}>Loading activity data...</p>
+            <div className="text-center animate-fade-in">
+              <div className="relative">
+                <Activity className={`w-16 h-16 ${themeClasses.textSecondary} animate-spin mx-auto mb-4`} style={{ animationDuration: '2s' }} />
+                <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-gradient-to-r from-transparent to-transparent via-current opacity-20 animate-pulse" />
+              </div>
+              <h3 className={`text-lg font-medium ${themeClasses.textPrimary} mb-2`}>Analyzing your activity...</h3>
+              <p className={`text-sm ${themeClasses.textSecondary}`}>This may take a few moments</p>
             </div>
           </div>
         ) : activityData && activityData.category_statistics.length > 0 ? (
@@ -468,26 +472,52 @@ function History({ isDarkMode, currentMode }: HistoryProps) {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full">
-            <Download className={`w-12 h-12 ${themeClasses.textSecondary} mb-4`} />
-            <p className={`${themeClasses.textSecondary} mb-6`}>No activity data available</p>
-            <button
-              onClick={handleSyncActivities}
-              disabled={isSyncing}
-              className={`px-4 py-2 ${isDarkMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2`}
-            >
-              {isSyncing ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Syncing...</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  <span>Sync from ActivityWatch</span>
-                </>
-              )}
-            </button>
+          <div className="flex flex-col items-center justify-center h-full max-w-md mx-auto">
+            <div className="text-center animate-fade-in">
+              {/* Icon with subtle animation */}
+              <div className="relative mb-6">
+                <div className={`w-24 h-24 mx-auto rounded-full ${themeClasses.surfaceSecondary} flex items-center justify-center`}>
+                  <BarChart2 className={`w-12 h-12 ${themeClasses.textSecondary}`} />
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center animate-bounce">
+                  <span className="text-white text-lg">!</span>
+                </div>
+              </div>
+              
+              {/* Messaging */}
+              <h3 className={`text-xl font-semibold ${themeClasses.textPrimary} mb-2`}>
+                Let's track your productivity journey
+              </h3>
+              <p className={`text-sm ${themeClasses.textSecondary} mb-6 leading-relaxed`}>
+                Sync your activity data from ActivityWatch to see detailed insights about your computer usage, 
+                productivity patterns, and time allocation across different applications.
+              </p>
+              
+              {/* Primary CTA */}
+              <button
+                onClick={handleSyncActivities}
+                disabled={isSyncing}
+                className={`px-6 py-3 ${isDarkMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 flex items-center space-x-2 mx-auto mb-4 shadow-lg`}
+                style={{ transition: 'all 200ms ease-in-out' }}
+              >
+                {isSyncing ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <span>Syncing your data...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-5 h-5" />
+                    <span>Sync Last 30 Days</span>
+                  </>
+                )}
+              </button>
+              
+              {/* Help text */}
+              <p className={`text-xs ${themeClasses.textSecondary}`}>
+                Make sure ActivityWatch is running in the background
+              </p>
+            </div>
           </div>
         )}
       </div>

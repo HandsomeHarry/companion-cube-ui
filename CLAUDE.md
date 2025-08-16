@@ -16,7 +16,7 @@ The application is built with:
 ### Critical Design Decisions
 
 1. **AFK Filtering**: All activity analysis excludes idle periods using `get_active_window_events()` which cross-references window events with AFK buckets
-2. **State Detection**: Four states: `flow` (15+ min single app), `working` (normal productivity), `needs_nudge` (5+ switches or entertainment), `afk` (user away)
+2. **State Detection**: Five states: `productive` (focused work), `moderate` (decent productivity), `chilling` (relaxed/casual), `unproductive` (distracted), `afk` (user away)
 3. **Mode-Specific Timing**: Ghost/Chill (hourly), Study (5-min), Coach (15-min) - enforced by background timer checking every minute
 4. **AI Prompt Unification**: All modes use `generate_ai_summary()` for consistent analysis quality
 
@@ -45,11 +45,21 @@ cargo fmt --check
 ## Key Functions and Data Flow
 
 ### Activity Monitoring Pipeline
-1. `ActivityWatchClient::get_multi_timeframe_data_active()` - Fetches data for 5min, 30min, 1hr periods with AFK filtering
+1. **ActivityWatch Query API** - Uses server-side query language for efficient data retrieval:
+   - `get_active_window_events()` - Now uses query API with `filter_period_intersect` for AFK filtering
+   - `get_multi_timeframe_data_active()` - Leverages query transforms for better performance
+   - `execute_query()` - Central method for running ActivityWatch queries
 2. `EventProcessor::prepare_raw_data_for_llm()` - Transforms events into structured timeline and context switches
 3. `EventProcessor::create_state_analysis_prompt()` - Generates comprehensive prompt with user context
 4. `call_ollama_api()` - Sends to LLM with 0.3 temperature for consistent responses
 5. `parse_llm_response()` - Robust JSON extraction handling malformed responses
+
+### ActivityWatch Query Improvements (2024)
+The codebase now uses ActivityWatch's query API instead of manual event filtering:
+- **Server-side filtering**: AFK periods filtered using `filter_period_intersect`
+- **Event merging**: Consecutive events merged with `merge_events_by_keys`
+- **Better performance**: Reduced data transfer and processing overhead
+- **New methods**: `get_activity_stats()`, `get_categorized_events()`, `get_app_usage_by_category()`
 
 ### Mode-Specific Behavior
 

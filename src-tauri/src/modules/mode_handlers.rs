@@ -97,7 +97,7 @@ pub async fn handle_chill_mode(app: &AppHandle) -> Result<(), String> {
     let (summary_text, focus_score, current_state, work_score, distraction_score, neutral_score) = generate_ai_summary_with_app(&aw_client, now, Some(app)).await?;
     
     // Check if user needs a nudge
-    if current_state.contains("needs_nudge") || current_state.contains("distracted") {
+    if current_state == "unproductive" {
         let config = load_user_config_internal().await.unwrap_or_default();
         send_notification(app, "Time for a change?", &config.chill_notification_prompt).await;
     }
@@ -160,10 +160,10 @@ pub async fn handle_study_mode(app: &AppHandle) -> Result<(), String> {
     let (summary_text, focus_score, current_state, work_score, distraction_score, neutral_score) = generate_study_focused_summary(&aw_client, now, &study_focus, app).await?;
     
     // Check if user is distracted from studying
-    if current_state == "needs_nudge" || current_state.contains("distracted") {
+    if current_state == "unproductive" {
         send_notification(app, "Study Focus", &config.study_notification_prompt).await;
         // User distracted - notification sent
-    } else if current_state == "flow" || current_state == "working" {
+    } else if current_state == "productive" || current_state == "moderate" {
         // Good focus detected
     }
     
@@ -279,7 +279,7 @@ async fn generate_new_hourly_summary(now: chrono::DateTime<Local>, summary_file:
     let focus_score = crate::modules::utils::calculate_time_based_focus_score(hour);
     
     let summary = crate::modules::utils::generate_time_based_summary();
-    let current_state = if focus_score > 70 { "flow" } else if focus_score > 50 { "working" } else { "needs_nudge" };
+    let current_state = if focus_score > 80 { "productive" } else if focus_score > 60 { "moderate" } else if focus_score > 40 { "chilling" } else { "unproductive" };
     
     // Save to file
     let entry = format!("---\n{}\n{}\n{}\n{}\n", 
@@ -296,252 +296,255 @@ async fn generate_ai_summary_with_app(
     now: chrono::DateTime<Local>,
     app: Option<&AppHandle>
 ) -> Result<(String, u32, String, u32, u32, u32), String> {
-    use crate::modules::event_processor::EventProcessor;
+    use crate::modules::enhanced_processor::{process_for_enhanced_analysis, create_enhanced_prompt};
     use crate::modules::ai_integration::{call_ollama_api, parse_llm_response};
     
+    eprintln!("\n[AI SUMMARY] ==================== STARTING GENERATION ====================");
+    eprintln!("[AI SUMMARY] Timestamp: {}", now.format("%Y-%m-%d %H:%M:%S"));
+    eprintln!("[AI SUMMARY] Type: Enhanced hourly summary with full timeline");
     
     // Get multi-timeframe data
+    eprintln!("[AI SUMMARY] Fetching multi-timeframe activity data...");
     let timeframes = match aw_client.get_multi_timeframe_data_active().await {
-        Ok(data) => data,
-        Err(e) => return Err(format!("Failed to get activity data: {}", e))
+        Ok(data) => {
+            eprintln!("[AI SUMMARY] Successfully fetched data for {} timeframes", data.len());
+            data
+        },
+        Err(e) => {
+            eprintln!("[AI SUMMARY] ERROR: Failed to get activity data: {}", e);
+            return Err(format!("Failed to get activity data: {}", e))
+        }
     };
     
-    // Process data for LLM
-    let processor = EventProcessor::new();
+    // Process data locally first
+    let state = app.ok_or("App handle required for database access")?
+        .state::<AppState>();
+    let db = &state.pattern_database;
+    
+    eprintln!("[AI SUMMARY] Processing activity data with enhanced analysis...");
+    let enhanced_data = process_for_enhanced_analysis(&timeframes, db).await?;
+    
+    // Log processed metrics
+    eprintln!("[AI SUMMARY] Local metrics calculated:");
+    eprintln!("  - State: {}", enhanced_data.local_metrics.current_state);
+    eprintln!("  - Work: {}%", enhanced_data.local_metrics.work_percentage);
+    eprintln!("  - Distraction: {}%", enhanced_data.local_metrics.distraction_percentage);
+    eprintln!("  - Focus Score: {}%", enhanced_data.focus_score);
+    eprintln!("  - Context Switches/hr: {:.0}", enhanced_data.local_metrics.context_switches_per_hour);
+    eprintln!("  - Timeline Events: {}", enhanced_data.detailed_timeline.len());
+    eprintln!("  - Context Switches: {}", enhanced_data.context_switches.len());
     
     // Load user context
     let config = load_user_config_internal().await.unwrap_or_default();
     let user_context = config.user_context.clone();
     
-    // Prepare data with advanced analysis
-    let raw_data = processor.prepare_raw_data_with_advanced_analysis(&timeframes, &user_context);
+    // Create enhanced prompt with full timeline
+    let prompt = create_enhanced_prompt(&enhanced_data, &user_context);
     
-    // Create enhanced prompt with advanced patterns and app categories
-    let prompt = if let Some(app_handle) = app {
-        let state = app_handle.state::<AppState>();
-        let db = &state.pattern_database;
-        processor.create_state_analysis_prompt_with_categories(&raw_data, &user_context, db).await
-    } else {
-        processor.create_enhanced_analysis_prompt(&raw_data, &user_context)
-    };
+    // Use local metrics as fallback values
+    let focus_score = enhanced_data.focus_score;
+    let mut current_state = enhanced_data.local_metrics.current_state.clone();
+    let work_score = enhanced_data.local_metrics.work_percentage as u32;
+    let distraction_score = enhanced_data.local_metrics.distraction_percentage as u32;
+    let neutral_score = enhanced_data.local_metrics.neutral_percentage as u32;
     
-    // Check if Ollama is available
+    // Check if Ollama is available for enhanced analysis
     let ollama_connected = crate::modules::ai_integration::test_ollama_connection().await;
     
-    if ollama_connected {
-        // Call Ollama API
+    let summary = if ollama_connected {
+        eprintln!("[AI SUMMARY] Ollama connected, requesting enhanced analysis...");
         match call_ollama_api(&prompt).await {
             Ok(response) => {
-                // Parse response
+                // Parse the enhanced analysis
                 match parse_llm_response(&response) {
                     Ok(analysis) => {
-                        let focus_score = match analysis.confidence.as_str() {
-                            "high" => match analysis.current_state.as_str() {
-                                "flow" => 90,
-                                "working" => 70,
-                                "needs_nudge" => 40,
-                                _ => 20,
-                            },
-                            "medium" => match analysis.current_state.as_str() {
-                                "flow" => 80,
-                                "working" => 60,
-                                "needs_nudge" => 35,
-                                _ => 20,
-                            },
-                            _ => 50,
-                        };
+                        // Update state if LLM has high confidence
+                        if analysis.confidence == "high" {
+                            current_state = analysis.current_state.clone();
+                        }
                         
-                        // Use professional_summary if available, otherwise fall back to primary_activity
-                        let summary = if !analysis.professional_summary.is_empty() && 
-                                       analysis.professional_summary != crate::modules::ai_integration::default_professional_summary() {
+                        // Use the professional summary from LLM
+                        eprintln!("[AI SUMMARY] Parsed analysis:");
+                        eprintln!("  - professional_summary: {}", analysis.professional_summary);
+                        eprintln!("  - primary_activity: {}", analysis.primary_activity);
+                        eprintln!("  - current_state: {}", analysis.current_state);
+                        
+                        // Always prefer professional_summary if it exists and is not default
+                        let has_professional = !analysis.professional_summary.is_empty() 
+                            && analysis.professional_summary != crate::modules::ai_integration::default_professional_summary();
+                        
+                        let summary = if has_professional {
+                            eprintln!("[AI SUMMARY] Using professional_summary: {}", analysis.professional_summary);
                             analysis.professional_summary.clone()
                         } else {
-                            analysis.primary_activity.clone()
+                            // If no professional summary, create one from available data
+                            eprintln!("[AI SUMMARY] No professional_summary, creating from primary_activity and other fields");
+                            eprintln!("[AI SUMMARY] primary_activity: {}", analysis.primary_activity);
+                            
+                            // Create a more detailed summary from all available fields
+                            format!("{} You're in a {} state with {}% focus. {} {}", 
+                                analysis.primary_activity,
+                                analysis.current_state,
+                                focus_score,
+                                analysis.reasoning,
+                                if analysis.confidence == "high" { "Activity patterns are clear." } else { "Activity patterns show some variability." }
+                            )
                         };
                         
-                        // Check for fatigue warnings from advanced analysis
-                        if let (Some(app_handle), Some(ref advanced)) = (app, &raw_data.advanced_analysis) {
-                            if advanced.fatigue_analysis.break_urgency == "urgent" || advanced.fatigue_analysis.break_urgency == "recommended" {
-                                send_notification(app_handle, "Break Time", &advanced.fatigue_analysis.recommended_action).await;
-                                send_log(app_handle, "warn", &format!("Fatigue detected: {}", advanced.fatigue_analysis.recommended_action));
+                        // Log any ADHD insights detected
+                        if let Ok(full_response) = serde_json::from_str::<serde_json::Value>(&response) {
+                            if let Some(insights) = full_response.get("adhd_insights") {
+                                eprintln!("[AI SUMMARY] ADHD Insights: {:?}", insights);
                             }
-                            
-                            // Warn about rabbit holes
-                            if advanced.rabbit_hole_detection.is_rabbit_hole {
-                                // Rabbit hole detected
+                            if let Some(suggestions) = full_response.get("personalized_suggestions") {
+                                eprintln!("[AI SUMMARY] Suggestions: {:?}", suggestions);
                             }
                         }
                         
-                        Ok((summary, focus_score, analysis.current_state.clone(), 
-                            analysis.work_score, analysis.distraction_score, analysis.neutral_score))
+                        summary
                     },
                     Err(e) => {
-                        // Fallback on parsing error
-                        // Parse error - use fallback
-                        generate_fallback_summary(&raw_data, now)
+                        eprintln!("[AI SUMMARY] Failed to parse LLM response: {}", e);
+                        // Use local summary
+                        format!("You've been primarily using {} with {} context switches in the last hour.",
+                            enhanced_data.detailed_timeline.last()
+                                .map(|e| e.name.as_str())
+                                .unwrap_or("various apps"),
+                            enhanced_data.context_switches.len()
+                        )
                     }
                 }
             },
             Err(e) => {
-                // Ollama call failed - use fallback
-                generate_fallback_summary(&raw_data, now)
+                eprintln!("[AI SUMMARY] Ollama call failed: {}, using local summary", e);
+                // Generate summary from timeline
+                let top_apps = enhanced_data.detailed_timeline.iter()
+                    .take(3)
+                    .map(|e| e.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("Recent activity includes {} with {} total context switches.",
+                    top_apps,
+                    enhanced_data.context_switches.len()
+                )
             }
         }
     } else {
-        // Fallback when Ollama is not available
-        generate_fallback_summary(&raw_data, now)
-    }
+        eprintln!("[AI SUMMARY] Ollama not connected, using local summary");
+        // Generate summary from timeline when Ollama is not available
+        let main_app = enhanced_data.detailed_timeline
+            .iter()
+            .max_by_key(|e| (e.duration_minutes * 100.0) as i64)
+            .map(|e| e.name.as_str())
+            .unwrap_or("various applications");
+        format!("You've spent most time in {} with a {}% productivity rate.",
+            main_app,
+            enhanced_data.local_metrics.work_percentage as i32
+        )
+    };
+    
+    eprintln!("[AI SUMMARY] Final summary: {}", summary);
+    Ok((summary, focus_score, current_state, work_score, distraction_score, neutral_score))
 }
 
 async fn generate_study_focused_summary(aw_client: &crate::modules::activity_watch::ActivityWatchClient, now: chrono::DateTime<Local>, study_focus: &str, app: &AppHandle) -> Result<(String, u32, String, u32, u32, u32), String> {
-    use crate::modules::event_processor::EventProcessor;
+    use crate::modules::enhanced_processor::{process_for_enhanced_analysis, create_enhanced_prompt};
     use crate::modules::ai_integration::{call_ollama_api, parse_llm_response};
     
+    eprintln!("\n[AI SUMMARY] ==================== STARTING STUDY MODE GENERATION ====================");
+    eprintln!("[AI SUMMARY] Timestamp: {}", now.format("%Y-%m-%d %H:%M:%S"));
+    eprintln!("[AI SUMMARY] Study Focus: {}", study_focus);
+    eprintln!("[AI SUMMARY] Type: Study-focused 5-minute summary");
+    
     // Get multi-timeframe data
+    eprintln!("[AI SUMMARY] Fetching multi-timeframe activity data...");
     let timeframes = aw_client.get_multi_timeframe_data_active().await?;
     
-    // Process data for LLM
-    let processor = EventProcessor::new();
-    
-    // Create study-specific context
-    let study_context = format!("Currently studying: {}. Focus on whether activities align with study goals.", study_focus);
-    
-    // Prepare data with advanced analysis
-    let raw_data = processor.prepare_raw_data_with_advanced_analysis(&timeframes, &study_context);
-    
-    // Create enhanced prompt with study focus and app categories
+    // Process data locally first
     let state = app.state::<AppState>();
     let db = &state.pattern_database;
-    let prompt = processor.create_state_analysis_prompt_with_categories(&raw_data, &study_context, db).await;
+    
+    eprintln!("[AI SUMMARY] Processing activity data with enhanced analysis...");
+    let enhanced_data = process_for_enhanced_analysis(&timeframes, db).await?;
+    
+    // Log processed metrics
+    eprintln!("[AI SUMMARY] Study mode metrics:");
+    eprintln!("  - State: {}", enhanced_data.local_metrics.current_state);
+    eprintln!("  - Work: {}%", enhanced_data.local_metrics.work_percentage);
+    eprintln!("  - Focus Score: {}%", enhanced_data.focus_score);
+    eprintln!("  - Timeline Events: {}", enhanced_data.detailed_timeline.len());
+    
+    // Create study-specific context
+    let study_context = format!("address the user as harry. Currently studying: {}. Analyze whether activities align with study goals. Pay special attention to distractions from study material.", study_focus);
+    
+    // Create enhanced prompt for study analysis
+    let prompt = create_enhanced_prompt(&enhanced_data, &study_context);
+    
+    // Use local metrics as fallback values
+    let focus_score = enhanced_data.focus_score;
+    let mut current_state = enhanced_data.local_metrics.current_state.clone();
+    let work_score = enhanced_data.local_metrics.work_percentage as u32;
+    let distraction_score = enhanced_data.local_metrics.distraction_percentage as u32;
+    let neutral_score = enhanced_data.local_metrics.neutral_percentage as u32;
     
     // Check if Ollama is available
     let ollama_connected = crate::modules::ai_integration::test_ollama_connection().await;
     
-    if ollama_connected {
+    let base_summary = if ollama_connected {
+        eprintln!("[AI SUMMARY] Ollama connected, requesting study analysis...");
         match call_ollama_api(&prompt).await {
             Ok(response) => {
                 match parse_llm_response(&response) {
                     Ok(analysis) => {
-                        let focus_score = match analysis.confidence.as_str() {
-                            "high" => match analysis.current_state.as_str() {
-                                "flow" => 90,
-                                "working" => 70,
-                                "needs_nudge" => 40,
-                                _ => 20,
-                            },
-                            "medium" => match analysis.current_state.as_str() {
-                                "flow" => 80,
-                                "working" => 60,
-                                "needs_nudge" => 35,
-                                _ => 20,
-                            },
-                            _ => 50,
-                        };
+                        // Update state if LLM has high confidence
+                        if analysis.confidence == "high" {
+                            current_state = analysis.current_state.clone();
+                        }
                         
-                        // Use professional_summary if available, otherwise fall back to primary_activity
-                        let base_summary = if !analysis.professional_summary.is_empty() && 
-                                            analysis.professional_summary != crate::modules::ai_integration::default_professional_summary() {
-                            analysis.professional_summary.clone()
-                        } else {
-                            analysis.primary_activity.clone()
-                        };
+                        // Check for study-specific patterns
+                        if let Ok(full_response) = serde_json::from_str::<serde_json::Value>(&response) {
+                            if let Some(details) = full_response.get("detailed_analysis") {
+                                if let Some(distractions) = details.get("distraction_triggers") {
+                                    eprintln!("[AI SUMMARY] Study distractions detected: {:?}", distractions);
+                                }
+                            }
+                        }
                         
-                        // Add study context to summary
-                        let summary = format!("{} [Study Focus: {}]", base_summary, study_focus);
-                        
-                        Ok((summary, focus_score, analysis.current_state.clone(), 
-                            analysis.work_score, analysis.distraction_score, analysis.neutral_score))
+                        analysis.professional_summary
                     },
                     Err(e) => {
-                        // Parse error - use fallback
-                        generate_fallback_summary(&raw_data, now)
+                        eprintln!("[AI SUMMARY] Failed to parse study response: {}", e);
+                        format!("Study session analysis: {} context switches detected while studying {}.",
+                            enhanced_data.context_switches.len(),
+                            study_focus
+                        )
                     }
                 }
             },
-            Err(e) => {
-                // Ollama call failed - use fallback
-                generate_fallback_summary(&raw_data, now)
+            Err(_) => {
+                eprintln!("[AI SUMMARY] Ollama call failed, using local summary");
+                format!("Study session: focused on {} with {} context switches", 
+                    study_focus,
+                    enhanced_data.context_switches.len()
+                )
             }
         }
     } else {
-        generate_fallback_summary(&raw_data, now)
-    }
-}
-
-// Helper function for fallback when AI is not available
-fn generate_fallback_summary(raw_data: &crate::modules::event_processor::RawDataForLLM, _now: chrono::DateTime<Local>) -> Result<(String, u32, String, u32, u32, u32), String> {
-    // Simple heuristic-based analysis
-    let recent_stats = raw_data.timeframes.get("5_minutes")
-        .map(|tf| &tf.statistics);
-    let medium_stats = raw_data.timeframes.get("30_minutes")
-        .map(|tf| &tf.statistics);
-    let _hour_stats = raw_data.timeframes.get("1_hour")
-        .map(|tf| &tf.statistics);
-    
-    let (summary, focus_score, state, work_score, distraction_score, neutral_score) = if let Some(stats) = recent_stats {
-        let apps: Vec<String> = stats.unique_apps.iter().cloned().collect();
-        
-        // Generate a 3-sentence professional summary
-        let sentence1 = if apps.is_empty() {
-            "No recent activity has been detected in the monitoring period.".to_string()
-        } else {
-            let app_list = apps.iter()
-                .take(3)
-                .map(|a| {
-                    let (clean_name, _) = crate::modules::utils::extract_app_and_exe_name(a);
-                    clean_name
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("Your recent activity has primarily involved {} with approximately {:.0} minutes of active engagement.", 
-                    app_list, stats.total_active_minutes)
-        };
-        
-        let sentence2 = if let Some(med_stats) = medium_stats {
-            format!("Over the past 30 minutes, you have switched contexts {} times across {} different applications, indicating a {} level of task switching.", 
-                    med_stats.context_switches, 
-                    med_stats.unique_apps.len(),
-                    if med_stats.context_switches < 5 { "low" } else if med_stats.context_switches < 10 { "moderate" } else { "high" })
-        } else {
-            "Activity patterns over the extended period could not be analyzed.".to_string()
-        };
-        
-        let sentence3 = match stats.context_switches {
-            0 if apps.len() == 1 => "You are currently in a deep focus state with sustained attention on a single task, which is optimal for productivity.".to_string(),
-            n if n < 5 => "Your work pattern shows good focus with minimal distractions, suggesting effective task management.".to_string(),
-            _ => "Consider reducing context switches to improve focus and productivity in your current workflow.".to_string(),
-        };
-        
-        let full_summary = format!("{} {} {}", sentence1, sentence2, sentence3);
-        
-        let focus_score = if stats.context_switches == 0 && apps.len() == 1 {
-            85
-        } else if stats.context_switches < 3 {
-            65
-        } else {
-            40
-        };
-        
-        let state = if stats.context_switches == 0 && apps.len() == 1 {
-            "flow"
-        } else if stats.context_switches < 5 {
-            "working"
-        } else {
-            "needs_nudge"
-        };
-        
-        // Calculate basic work/distraction scores from app usage
-        let work_score = if stats.context_switches == 0 && apps.len() == 1 { 85 } else if stats.context_switches < 5 { 65 } else { 40 };
-        let distraction_score = if stats.context_switches > 10 { 40 } else if stats.context_switches > 5 { 25 } else { 10 };
-        let neutral_score = 100 - work_score - distraction_score;
-        
-        (full_summary, focus_score, state.to_string(), work_score, distraction_score, neutral_score)
-    } else {
-        ("Unable to analyze activity data at this time. Please ensure ActivityWatch is running and collecting data. Check your system configuration if this issue persists. Consider restarting the monitoring service.".to_string(), 50, "unknown".to_string(), 33, 33, 34)
+        eprintln!("[AI SUMMARY] Ollama not connected, using local summary");
+        format!("Study session: focused on {} with {} context switches", 
+                    study_focus,
+                    enhanced_data.context_switches.len()
+                )
     };
     
-    Ok((summary, focus_score, state, work_score, distraction_score, neutral_score))
+    // Add study context to summary
+    let summary = format!("{} [Study Focus: {}]", base_summary, study_focus);
+    
+    eprintln!("[AI SUMMARY] Final study summary: {}", summary);
+    Ok((summary, focus_score, current_state, work_score, distraction_score, neutral_score))
 }
+
+// Removed unused fallback function - now using local metrics calculation
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 struct TodoItem {

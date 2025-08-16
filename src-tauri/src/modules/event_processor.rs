@@ -10,6 +10,9 @@ pub struct TimelineEvent {
     pub name: String,
     pub title: String,
     pub duration_minutes: f64,
+    pub category: Option<String>,
+    pub subcategory: Option<String>,
+    pub productivity_score: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +20,8 @@ pub struct ContextSwitch {
     pub timestamp: DateTime<Utc>,
     pub from_app: String,
     pub to_app: String,
+    pub from_category: Option<String>,
+    pub to_category: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,9 +152,17 @@ EVALUATE BASED ON:
 4. Context appropriateness for user's role
 5. Natural work sessions and break patterns
 
+CURRENT STATE EVALUATION:
+Choose ONE state that best describes the user's activity:
+- productive: Focused work with minimal distractions, high output
+- moderate: Some work done but with occasional distractions
+- chilling: Relaxed browsing, taking breaks, casual activities
+- unproductive: Mostly distracted, entertainment-focused, procrastinating
+- afk: User is away from keyboard
+
 Return JSON only:
 {{
-  "current_state": "flow|working|needs_nudge|afk",
+  "current_state": "productive|moderate|chilling|unproductive|afk",
   "focus_trend": "maintaining_focus|entering_focus|losing_focus|variable|none",
   "distraction_trend": "low|moderate|increasing|decreasing|high",
   "confidence": "high|medium|low",
@@ -186,8 +199,13 @@ Return JSON only:
             return "No activity detected".to_string();
         }
         
+        // Log timeline details
+        eprintln!("\n[TIMELINE DATA] ==================== RECENT ACTIVITIES ====================");
+        eprintln!("[TIMELINE DATA] Total events in timeline: {}", timeline.len());
+        eprintln!("[TIMELINE DATA] Showing most recent {} events:", if timeline.len() > 20 { 20 } else { timeline.len() });
+        
         let mut formatted = Vec::new();
-        let events_to_show = if timeline.len() > 20 { 20 } else { timeline.len() };
+        let events_to_show = timeline.len(); // Show all events for better LLM analysis
         
         for event in timeline.iter().rev().take(events_to_show).rev() {
             let title_part = if event.title.is_empty() { "" } else { &format!(" → {}", event.title) };
@@ -204,20 +222,31 @@ Return JSON only:
                 })
                 .unwrap_or_else(|| " [uncategorized]".to_string());
             
-            formatted.push(format!(
-                "• {} - {}{}{} ({}min)",
-                event.timestamp.format("%H:%M"),
+            let formatted_event = format!(
+                "• {} - {}{}{} ({:.2}min)",
+                event.timestamp.format("%H:%M:%S"),
                 app_name,
                 category_info,
                 title_part,
                 event.duration_minutes
-            ));
+            );
+            
+            // Log each event
+            eprintln!("[TIMELINE DATA] {}", formatted_event);
+            
+            formatted.push(formatted_event);
         }
         
         formatted.join("\n")
     }
     
     pub fn create_state_analysis_prompt(&self, raw_data: &RawDataForLLM, user_context: &str) -> String {
+        // Log raw data overview
+        eprintln!("\n[ACTIVITY DATA] ==================== START ====================");
+        eprintln!("[ACTIVITY DATA] Processing timeframes: {:?}", raw_data.timeframes.keys().collect::<Vec<_>>());
+        eprintln!("[ACTIVITY DATA] Timeline events: {}", raw_data.activity_timeline.len());
+        eprintln!("[ACTIVITY DATA] Context switches: {}", raw_data.context_switches.len());
+        
         let recent_timeframe = raw_data.timeframes.get("5_minutes");
         let medium_timeframe = raw_data.timeframes.get("30_minutes");
         let hour_timeframe = raw_data.timeframes.get("1_hour");
@@ -259,8 +288,21 @@ Return JSON only:
             })
             .unwrap_or(false);
         
+        // Log detailed statistics
+        eprintln!("[ACTIVITY DATA] ==================== STATISTICS ====================");
+        eprintln!("[ACTIVITY DATA] Recent (5min): {} active minutes, {} context switches, {} unique apps", 
+            recent_stats.total_active_minutes as i32, recent_stats.context_switches, recent_stats.unique_apps.len());
+        eprintln!("[ACTIVITY DATA] Medium (30min): {} active minutes, {} context switches, {} unique apps", 
+            medium_stats.total_active_minutes as i32, medium_stats.context_switches, medium_stats.unique_apps.len());
+        eprintln!("[ACTIVITY DATA] Hour: {} active minutes, {} context switches", 
+            hour_stats.total_active_minutes as i32, hour_stats.context_switches);
+        eprintln!("[ACTIVITY DATA] Today: {} active minutes, {} unique apps", 
+            today_stats.total_active_minutes as i32, today_stats.unique_apps.len());
+        eprintln!("[ACTIVITY DATA] AFK Status: {}", if is_currently_afk { "User is AFK" } else { "User is Active" });
+        eprintln!("[ACTIVITY DATA] ==================== END ====================\n");
+        
         format!(
-            r#"Analyze ADHD productivity state. Return ONLY JSON, no other text.
+            r#"Analyze ADHD productivity state in detail. You have access to full activity timeline. Return ONLY JSON, no other text.
 
 USER CONTEXT: {}
 STATUS: {} | Recent: {}m active, {} switches, {} apps | Last 30min: {}m active, {} switches, {} apps | Last hour: {}m active, {} switches | Today: {}m active, {} apps
@@ -278,9 +320,17 @@ EVALUATE BASED ON:
 4. Context appropriateness for user's role
 5. Fatigue indicators and time since last break
 
+CURRENT STATE EVALUATION:
+Choose ONE state that best describes the user's activity:
+- productive: Focused work with minimal distractions, high output
+- moderate: Some work done but with occasional distractions
+- chilling: Relaxed browsing, taking breaks, casual activities
+- unproductive: Mostly distracted, entertainment-focused, procrastinating
+- afk: User is away from keyboard
+
 Return JSON only:
 {{
-  "current_state": "flow|working|needs_nudge|afk",
+  "current_state": "productive|moderate|chilling|unproductive|afk",
   "focus_trend": "maintaining_focus|entering_focus|losing_focus|variable|none",
   "distraction_trend": "low|moderate|increasing|decreasing|high",
   "confidence": "high|medium|low",
@@ -381,6 +431,9 @@ Consider these advanced patterns when making your assessment. If fatigue is high
                             .unwrap_or("")
                             .to_string(),
                         duration_minutes: event.duration / 60.0,
+                        category: None,
+                        subcategory: None,
+                        productivity_score: None,
                     });
                 }
             }
@@ -396,6 +449,9 @@ Consider these advanced patterns when making your assessment. If fatigue is high
                             .unwrap_or("")
                             .to_string(),
                         duration_minutes: event.duration / 60.0,
+                        category: None,
+                        subcategory: None,
+                        productivity_score: None,
                     });
                 }
             }
@@ -419,6 +475,8 @@ Consider these advanced patterns when making your assessment. If fatigue is high
                                 timestamp: event.timestamp,
                                 from_app: prev.to_string(),
                                 to_app: app.to_string(),
+                                from_category: None,
+                                to_category: None,
                             });
                         }
                     }
@@ -462,13 +520,20 @@ Consider these advanced patterns when making your assessment. If fatigue is high
         for switch in switches.iter().take(5) {
             let (from_app, _from_exe) = crate::modules::utils::extract_app_and_exe_name(&switch.from_app);
             let (to_app, _to_exe) = crate::modules::utils::extract_app_and_exe_name(&switch.to_app);
-            formatted.push(format!(
+            let formatted_switch = format!(
                 "• {} → {} at {}",
                 from_app,
                 to_app,
                 switch.timestamp.format("%H:%M")
-            ));
+            );
+            
+            // Log each switch
+            eprintln!("[TIMELINE DATA] {}", formatted_switch);
+            
+            formatted.push(formatted_switch);
         }
+        
+        eprintln!("[TIMELINE DATA] ==================== END ====================\n");
         
         formatted.join("\n")
     }
