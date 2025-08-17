@@ -104,6 +104,21 @@ pub async fn generate_hourly_summary(app: AppHandle) -> Result<HourlySummary, St
     {
         let latest = state.latest_hourly_summary.lock().await;
         if let Some(summary) = latest.as_ref() {
+            // Send notification with summary
+            let notification_title = match mode.as_str() {
+                "study_buddy" => "Study Mode Update",
+                "coach" => "Coach Mode Update",
+                _ => "Activity Summary"
+            };
+            
+            // Extract key info from summary for notification
+            let notification_body = format!("Focus Score: {}% - {}", 
+                summary.focus_score, 
+                summary.current_state
+            );
+            
+            crate::modules::utils::send_notification(&app, notification_title, &notification_body).await;
+            
             return Ok(summary.clone());
         }
     }
@@ -748,7 +763,7 @@ pub async fn bulk_update_categories(
 pub async fn get_activity_history(
     time_range: String,
     state: State<'_, AppState>,
-    app: AppHandle
+    _app: AppHandle
 ) -> Result<serde_json::Value, String> {
     let db = &state.pattern_database;
     let now = chrono::Utc::now();
@@ -762,19 +777,12 @@ pub async fn get_activity_history(
     
     // Get category statistics
     let category_stats = db.get_category_statistics(start, end).await?;
-    send_log(&app, "debug", &format!("Category stats for {}: {} categories found", time_range, category_stats.len()));
     
     // Get hourly breakdown
     let hourly_breakdown = db.get_hourly_breakdown(start, end).await?;
-    send_log(&app, "debug", &format!("Hourly breakdown for {}: {} entries found", time_range, hourly_breakdown.len()));
     
     // Get top apps
     let top_apps = db.get_top_apps(start, end, 10).await?;
-    send_log(&app, "debug", &format!("Top apps for {}: {} apps found", time_range, top_apps.len()));
-    
-    // Get total activity count to debug
-    let total_activities = db.get_activity_count().await.unwrap_or(0);
-    send_log(&app, "debug", &format!("Total activities in database: {}", total_activities));
     
     Ok(serde_json::json!({
         "time_range": time_range,
@@ -824,6 +832,20 @@ pub async fn sync_all_activities(
                 send_log(&app, "info", "Categorizing all uncategorized apps...");
                 if let Err(e) = categorize_all_apps(&app, db, uncategorized_apps).await {
                     send_log(&app, "warn", &format!("Failed to categorize some apps: {}", e));
+                }
+                
+                // Update activities with new categories
+                let update_result = sqlx::query(
+                    "UPDATE activities 
+                     SET category = (SELECT category FROM app_categories WHERE app_categories.app_name = activities.app_name)
+                     WHERE category IS NULL"
+                )
+                .execute(&db.pool)
+                .await;
+                
+                match update_result {
+                    Ok(result) => send_log(&app, "info", &format!("Updated {} activities with categories", result.rows_affected())),
+                    Err(e) => send_log(&app, "warn", &format!("Failed to update activity categories: {}", e))
                 }
             }
             
@@ -960,127 +982,5 @@ Example:
     
     send_log(app, "info", "App categorization completed");
     Ok(())
-}
-
-#[tauri::command]
-pub async fn debug_database_state(
-    state: State<'_, AppState>,
-    app: AppHandle
-) -> Result<String, String> {
-    let db = &state.pattern_database;
-    
-    // Get basic counts
-    let total_activities = db.get_activity_count().await.unwrap_or(0);
-    let categorized_apps = db.get_categorized_app_count().await.unwrap_or(0);
-    
-    // Get uncategorized apps
-    let uncategorized_apps = db.get_uncategorized_apps().await?;
-    
-    // Get sample activities
-    let sample_activities = sqlx::query(
-        "SELECT app_name, category, timestamp, duration 
-         FROM activities 
-         ORDER BY timestamp DESC 
-         LIMIT 10"
-    )
-    .fetch_all(&db.pool)
-    .await
-    .map_err(|e| format!("Failed to get sample activities: {}", e))?;
-    
-    let mut activity_samples = Vec::new();
-    for row in sample_activities {
-        let app_name: String = row.get("app_name");
-        let category: Option<String> = row.get("category");
-        let timestamp: String = row.get("timestamp");
-        let duration: f64 = row.get("duration");
-        activity_samples.push(format!(
-            "App: {}, Category: {:?}, Time: {}, Duration: {:.1}s",
-            app_name, category, timestamp, duration
-        ));
-    }
-    
-    // Try to categorize the first uncategorized app if any exist
-    let test_result = if !uncategorized_apps.is_empty() {
-        let test_app = &uncategorized_apps[0];
-        send_log(&app, "info", &format!("Testing categorization for: {}", test_app));
-        
-        // Manually categorize one app to test
-        match db.set_app_category(
-            test_app,
-            "test",
-            Some("debug test"),
-            Some(50),
-            false
-        ).await {
-            Ok(_) => format!("Successfully categorized {} as test", test_app),
-            Err(e) => format!("Failed to categorize {}: {}", test_app, e)
-        }
-    } else {
-        "No uncategorized apps to test".to_string()
-    };
-    
-    let debug_info = format!(
-        r#"Database State Debug:
-- Total activities: {}
-- Categorized apps: {}
-- Uncategorized apps: {} (first 5: {:?})
-
-Recent activities:
-{}
-
-Test categorization: {}
-"#,
-        total_activities,
-        categorized_apps,
-        uncategorized_apps.len(),
-        uncategorized_apps.iter().take(5).collect::<Vec<_>>(),
-        activity_samples.join("\n"),
-        test_result
-    );
-    
-    send_log(&app, "info", &debug_info);
-    Ok(debug_info)
-}
-
-#[tauri::command]
-pub async fn get_loaded_ollama_model(app: AppHandle) -> Result<String, String> {
-    let config = crate::modules::utils::load_user_config_internal().await.unwrap_or_default();
-    let client = crate::modules::ai_integration::get_ollama_client();
-    
-    // Check loaded models via Ollama API
-    match client
-        .get(format!("http://localhost:{}/api/ps", config.ollama_port))
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                match resp.json::<serde_json::Value>().await {
-                    Ok(data) => {
-                        if let Some(models) = data.get("models").and_then(|m| m.as_array()) {
-                            let loaded_models: Vec<String> = models
-                                .iter()
-                                .filter_map(|m| m.get("name").and_then(|n| n.as_str()))
-                                .map(|s| s.to_string())
-                                .collect();
-                            
-                            let result = if loaded_models.is_empty() {
-                                "No models currently loaded in VRAM".to_string()
-                            } else {
-                                format!("Loaded models: {}", loaded_models.join(", "))
-                            };
-                            
-                            send_log(&app, "info", &format!("{} | Config model: {}", result, config.ollama_model));
-                            return Ok(result);
-                        }
-                    }
-                    Err(e) => send_log(&app, "error", &format!("Failed to parse models: {}", e))
-                }
-            }
-        }
-        Err(e) => send_log(&app, "error", &format!("Failed to check loaded models: {}", e))
-    }
-    
-    Ok(format!("Config model: {} (unable to check loaded models)", config.ollama_model))
 }
 

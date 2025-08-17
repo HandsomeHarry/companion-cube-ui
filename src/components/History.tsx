@@ -91,9 +91,11 @@ function History({ isDarkMode, currentMode }: HistoryProps) {
     setIsLoading(true)
     try {
       const data = await invoke('get_activity_history', { timeRange: selectedRange }) as ActivityData
+      
       setActivityData(data)
     } catch (error) {
       console.error('Failed to load activity history:', error)
+      setActivityData(null)
     } finally {
       setIsLoading(false)
     }
@@ -246,23 +248,6 @@ function History({ isDarkMode, currentMode }: HistoryProps) {
               ))}
             </div>
             
-            <button
-              onClick={async () => {
-                try {
-                  const debug = await invoke('debug_database_state') as string
-                  console.log('Database Debug:', debug)
-                  alert(debug)
-                } catch (e) {
-                  console.error('Debug failed:', e)
-                }
-              }}
-              className={`w-10 h-10 rounded-lg transition-colors ${isDarkMode ? themeClasses.surface : 'bg-gray-200 hover:bg-gray-300'} ${themeClasses.textSecondary} flex items-center justify-center`}
-              title="Debug Database"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-              </svg>
-            </button>
           </div>
         </div>
       </div>
@@ -312,7 +297,8 @@ function History({ isDarkMode, currentMode }: HistoryProps) {
               <p className={`text-sm ${themeClasses.textSecondary}`}>This may take a few moments</p>
             </div>
           </div>
-        ) : activityData && activityData.category_statistics.length > 0 ? (
+        ) : activityData && activityData.category_statistics && activityData.category_statistics.length > 0 ? (
+          <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Category Distribution */}
             <div className={`${themeClasses.surface} rounded-xl shadow-lg p-6`}>
@@ -471,6 +457,7 @@ function History({ isDarkMode, currentMode }: HistoryProps) {
               </div>
             </div>
           </div>
+          </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full max-w-md mx-auto">
             <div className="text-center animate-fade-in">

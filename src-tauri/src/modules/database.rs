@@ -657,7 +657,7 @@ impl PatternDatabase {
             "SELECT a.*, ac.category, ac.subcategory, ac.productivity_score
              FROM activities a
              LEFT JOIN app_categories ac ON a.app_name = ac.app_name
-             WHERE a.timestamp >= ? AND a.timestamp <= ?
+             WHERE datetime(a.timestamp) >= datetime(?) AND datetime(a.timestamp) <= datetime(?)
              ORDER BY a.timestamp"
         )
         .bind(start.to_rfc3339())
@@ -697,8 +697,8 @@ impl PatternDatabase {
                 AVG(COALESCE(ac.productivity_score, 50)) as avg_productivity_score
              FROM activities a
              LEFT JOIN app_categories ac ON a.app_name = ac.app_name
-             WHERE a.timestamp >= ? AND a.timestamp <= ?
-             GROUP BY ac.category
+             WHERE datetime(a.timestamp) >= datetime(?) AND datetime(a.timestamp) <= datetime(?)
+             GROUP BY COALESCE(ac.category, 'uncategorized')
              ORDER BY total_duration DESC"
         )
         .bind(start.to_rfc3339())
@@ -729,14 +729,14 @@ impl PatternDatabase {
     ) -> Result<Vec<serde_json::Value>, String> {
         let rows = sqlx::query(
             "SELECT 
-                strftime('%Y-%m-%d %H:00:00', timestamp) as hour,
+                strftime('%Y-%m-%dT%H:00:00Z', timestamp) as hour,
                 COALESCE(ac.category, 'uncategorized') as category,
                 SUM(duration) as total_duration
              FROM activities a
              LEFT JOIN app_categories ac ON a.app_name = ac.app_name
-             WHERE a.timestamp >= ? AND a.timestamp <= ?
-             GROUP BY hour, category
-             ORDER BY hour, category"
+             WHERE datetime(a.timestamp) >= datetime(?) AND datetime(a.timestamp) <= datetime(?)
+             GROUP BY hour, COALESCE(ac.category, 'uncategorized')
+             ORDER BY hour, COALESCE(ac.category, 'uncategorized')"
         )
         .bind(start.to_rfc3339())
         .bind(end.to_rfc3339())
@@ -773,7 +773,7 @@ impl PatternDatabase {
                 COUNT(*) as session_count
              FROM activities a
              LEFT JOIN app_categories ac ON a.app_name = ac.app_name
-             WHERE a.timestamp >= ? AND a.timestamp <= ?
+             WHERE datetime(a.timestamp) >= datetime(?) AND datetime(a.timestamp) <= datetime(?)
              GROUP BY a.app_name, ac.category, ac.productivity_score
              ORDER BY total_duration DESC
              LIMIT ?"

@@ -26,6 +26,7 @@ pub fn run() {
                 tauri_plugin_log::TargetKind::Stdout,
             ))
             .build())
+        .plugin(tauri_plugin_notification::init())
         .manage(tauri::async_runtime::block_on(AppState::new()).expect("Failed to initialize app state"))
         .invoke_handler(tauri::generate_handler![
             check_connections,
@@ -49,8 +50,6 @@ pub fn run() {
             bulk_update_categories,
             get_activity_history,
             sync_all_activities,
-            debug_database_state,
-            get_loaded_ollama_model,
         ])
         .on_window_event(|window, event| {
             match event {
@@ -266,7 +265,7 @@ async fn should_run_summary(mode: &str, state: &AppState) -> bool {
     
     match mode {
         "ghost" | "chill" => now.minute() == 0,
-        "study_buddy" => now.minute() % 5 == 0,
+        "study_buddy" => now.minute() % 10 == 0,
         "coach" => now.minute() % 15 == 0,
         _ => false
     }

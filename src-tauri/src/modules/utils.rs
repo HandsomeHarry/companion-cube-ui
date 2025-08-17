@@ -94,6 +94,19 @@ pub fn send_log(app: &AppHandle, level: &str, message: &str) {
 }
 
 pub async fn send_notification(app: &AppHandle, title: &str, body: &str) {
+    // Use native system notification through Tauri plugin
+    use tauri_plugin_notification::NotificationExt;
+    
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to show notification: {}", e);
+        });
+    
+    // Also emit to frontend for logging/display purposes
     let notification_data = serde_json::json!({
         "title": title,
         "body": body,
@@ -101,7 +114,7 @@ pub async fn send_notification(app: &AppHandle, title: &str, body: &str) {
     });
     
     if let Err(e) = app.emit("show_notification", &notification_data) {
-        eprintln!("Failed to emit notification: {}", e);
+        eprintln!("Failed to emit notification event: {}", e);
     }
 }
 

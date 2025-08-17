@@ -2,7 +2,7 @@
   "user_context": "address the user as harry",
   "activitywatch_port": 5600,
   "ollama_port": 11434,
-  "study_focus": "planning a trip for 7 peeps",
+  "study_focus": "learn about 3d printing and modeling",
   "coach_task": "learning about DIY Woodworking",
   "ghost_notification_prompt": "👻 Silent monitoring mode active",
   "chill_notification_prompt": "Hey! You've been having fun for a while now. Maybe it's time to take a break or switch to something productive?",

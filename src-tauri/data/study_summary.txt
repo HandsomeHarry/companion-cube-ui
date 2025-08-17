@@ -1,7 +1,7 @@
 ---
-18:52
-Activity summary is being generated. Please wait for detailed analysis. [Study Focus: planning a trip for 7 peeps]
-97
-productive
+12:30
+Study session: focused on learn about 3d printing and modeling with 0 context switches [Study Focus: learn about 3d printing and modeling]
+0
+unproductive
 Mode: study
-Focus: planning a trip for 7 peeps
+Focus: learn about 3d printing and modeling
