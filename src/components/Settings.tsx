@@ -702,7 +702,7 @@ function Settings({ isDarkMode, currentMode, connectionStatus }: SettingsProps) 
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className={`text-sm ${themeClasses.textSecondary}`}>Version</span>
-                <span className={`text-sm ${themeClasses.textPrimary} font-mono`}>v0.1.0</span>
+                <span className={`text-sm ${themeClasses.textPrimary} font-mono`}>v0.1.2</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className={`text-sm ${themeClasses.textSecondary}`}>Creator</span>

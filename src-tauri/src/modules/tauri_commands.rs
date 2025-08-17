@@ -112,7 +112,7 @@ pub async fn generate_hourly_summary(app: AppHandle) -> Result<HourlySummary, St
             };
             
             // Extract key info from summary for notification
-            let notification_body = format!("Focus Score: {}% - {}", 
+            let notification_body = format!("Focus Score: {} - {}", 
                 summary.focus_score, 
                 summary.current_state
             );
