@@ -75,6 +75,11 @@ cargo build --release  # Production Tauri build
 ## Data Privacy
 It doesn't need internet to function. Everything is kept on your computer.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=HandsomeHarry/companion-cube-ui&type=date&legend=top-left)](https://www.star-history.com/#HandsomeHarry/companion-cube-ui&type=date&legend=top-left)
+Star if you find this useful!
+
 ## License
 
 This project is licensed under the MIT License.
