@@ -1,8 +1,8 @@
 # Companion Cube
 
-Companion cube determines user focus status using data collected from ActivityWatch and a local LLM model and nudges the user when they're drifting off, whether it be mindless YouTube browsing or Wikipedia rabbit-hole exploring. It is mainly designed for people with ADHD who have trouble focusing on tasks.
+Companion Cube helps you work *with* your brain, not against it. Instead of blocking distractions, it gently saves them for later—because that rabbit hole about mechanical keyboards might actually be worth exploring, just not right now.
 
-<img width="1247" height="830" alt="image" src="https://github.com/user-attachments/assets/ea74cf29-b5a4-46e6-9a25-46883ca51c54" />
+<img width="1143" height="739" alt="image" src="https://github.com/user-attachments/assets/544c8f5f-4fbd-418a-bd19-c533c0b8fc66" />
 
 ## Getting Started
 
@@ -15,45 +15,76 @@ Companion cube determines user focus status using data collected from ActivityWa
 
 
 
-## Usage Modes
+## Features
 
-There are 4 modes:
-- **Ghost Mode**: No interventions, optional hourly summaries
-- **Chill Mode**: Hourly checkins and summaries
-- **Study Mode**: 5-minute checkins, with study-specific context
-- **Coach Mode**: 15-minute checkins, with todo list generation and context
+### 📜 History
+Auto-organized timeline of your activities. No manual tracking.
 
-### Mode-Specific Features
-- **Study Mode**: 
-  - Immediate summary generation on mode switch
-  - Study topic context integration
-  - 5-minute state analysis
-- **Coach Mode**: 
-  - Todo list generation and management
-  - Task-focused context prompts
-  - 15-minute productivity summaries
+- Activities grouped by focus sessions
+- Drag items between groups to correct misclassifications
+- Your corrections teach the AI to understand *your* patterns
+<img width="1459" height="1005" alt="image" src="https://github.com/user-attachments/assets/71881d73-5b29-4d83-9cec-31abcf734a99" />
 
-## Key Features
+### 🏦 Vault
+Where distractions go to become future inspiration.
 
-### Activity Analysis Pipeline
-1. **Data Collection**: ActivityWatch query API with server-side filtering
-2. **AFK Filtering**: Automatic exclusion of idle periods using `filter_period_intersect`
-3. **App Categorization**: Local classification system with productivity scoring
-4. **State Detection**: Five states - productive, moderate, chilling, unproductive, afk
-5. **LLM Analysis**: Comprehensive prompt generation with user context integration
+- One click to save "for later"
+- Search and favorite saved ideas
+- Gentle reminders for stale items ("Still interested in GPU benchmarks?")
+<img width="1026" height="904" alt="image" src="https://github.com/user-attachments/assets/3e9a57b6-e662-45aa-8cdf-1328db789de1" />
 
-### Smart Categorization
-The system uses LLMs for extensive app categorization
-- **Event Merging**: Consecutive events merged for better analysis
-- **Multi-timeframe Analysis**: Hour, day, and week-level insights
-- **Context Switching Detection**: Rapid app switching analysis
 
-### App Categories
-Customize app categorization through the Settings interface:
-- Productivity scoring (0-100)
-- Category assignment
-- Subcategory classification
-- Bulk category updates
+### 🎵 Rhythm
+Spotify Wrapped, but for your focus patterns.
+
+- **Best Focus Window**: Discover when you naturally focus best
+- **Focus Fingerprint**: Your unique deep-work app combinations
+- **Drift Patterns**: Where your rabbit holes usually start (no judgment)
+- **Heatmaps**: Visualize your weekly patterns at a glance
+
+<img width="920" height="915" alt="image" src="https://github.com/user-attachments/assets/24a404c9-4bf7-4fd5-8e39-c251e13507d9" />
+
+
+### 💡 Aura
+Your room reflects your focus state.
+
+- Connects to existing smart lights (HomeKit, Home Assistant)
+- Warm light when focused, cooler when drifting
+- 30-second gradual transitions—no flashing, no alarms
+- Peripheral awareness without demanding attention
+<img width="619" height="641" alt="image" src="https://github.com/user-attachments/assets/92fddbbd-bd9d-47ac-be11-fc74dcfc7181" />
+
+
+### 🔔 Nudges
+Gentle, not naggy.
+
+- "You're watching keyboard reviews—save for later?"
+- Snooze with friction (hold 3 seconds to add intentionality)
+- Snooze too often? Suggests a break instead of guilt
+<img width="729" height="708" alt="image" src="https://github.com/user-attachments/assets/4a57f644-aa1b-41e3-8f33-921063d588f7" />
+
+---
+## How It Works
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  ActivityWatch  │────▶│   Local LLM     │────▶│   Nudge User    │
+│  (tracking)     │     │   (Qwen3-8B)    │     │   or Stay Silent│
+└─────────────────┘     └────────┬────────┘     └─────────────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐
+                        │  Daily Learning │
+                        │  Loop (LoRA)    │
+                        └─────────────────┘
+                                 ▲
+                                 │
+                        ┌─────────────────┐
+                        │ User Corrections│
+                        │ (drag/edit)     │
+                        └─────────────────┘
+```
+---
 
 ## Development
 
