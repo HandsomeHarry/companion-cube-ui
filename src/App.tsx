@@ -5,7 +5,7 @@ import MainContent from './components/MainContent'
 import Sidebar from './components/Sidebar'
 import Settings from './components/Settings'
 import History from './components/History'
-// import Toast, { ToastMessage } from './components/Toast' // Removed toast notifications
+import Nudge, { NudgeMessage } from './components/Nudge'
 import { getThemeClasses } from './utils/theme'
 
 interface ConnectionStatus {
@@ -85,7 +85,8 @@ function App() {
   const [isGeneratingDaily, setIsGeneratingDaily] = useState(false)
   const [activityClassification, setActivityClassification] = useState<ActivityClassification | null>(null)
   const [isClassifying, setIsClassifying] = useState(false)
-  // const [toastMessages, setToastMessages] = useState<ToastMessage[]>([]) // Removed toast notifications
+  const [activeNudge, setActiveNudge] = useState<NudgeMessage | null>(null)
+  const [snoozeCount, setSnoozeCount] = useState(0)
 
   useEffect(() => {
     if (isDarkMode) {
@@ -184,8 +185,18 @@ function App() {
     }, 30000)
 
     const unlistenNotification = listen('show_notification', (event) => {
-      console.log('Received notification:', event.payload)
-      // Could show in-app notification here if desired
+      const payload = event.payload as { title: string; body: string; timestamp: string }
+      setSnoozeCount(prev => {
+        const currentSnoozeCount = prev
+        setActiveNudge({
+          id: `nudge-${Date.now()}`,
+          title: payload.title,
+          body: payload.body,
+          timestamp: payload.timestamp,
+          snoozeCount: currentSnoozeCount,
+        })
+        return prev
+      })
     })
 
     // Also listen for mode changes to refresh summary
@@ -296,6 +307,21 @@ function App() {
     }
   }
 
+  const handleNudgeSnooze = (id: string) => {
+    if (activeNudge?.id === id) {
+      setSnoozeCount(prev => prev + 1)
+      setActiveNudge(null)
+    }
+  }
+
+  const handleSaveForLater = (nudge: NudgeMessage) => {
+    // Phase 2 will invoke the Tauri vault command here.
+    // For now, log it and dismiss so the UX flow is complete.
+    console.log('Saved to vault (stub):', nudge.title, nudge.body)
+    setSnoozeCount(0)
+    setActiveNudge(null)
+  }
+
   const renderContent = () => {
     switch (currentPage) {
       case 'settings':
@@ -341,7 +367,13 @@ function App() {
         />
         {renderContent()}
       </div>
-      {/* Toast notifications removed */}
+      <Nudge
+        nudge={activeNudge}
+        onSnooze={handleNudgeSnooze}
+        onSaveForLater={handleSaveForLater}
+        currentMode={currentMode}
+        isDarkMode={isDarkMode}
+      />
     </div>
   )
 }
