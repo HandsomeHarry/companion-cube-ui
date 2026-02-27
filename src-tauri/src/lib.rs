@@ -50,6 +50,10 @@ pub fn run() {
             bulk_update_categories,
             get_activity_history,
             sync_all_activities,
+            save_to_vault,
+            get_vault_items,
+            update_vault_item,
+            delete_vault_item,
         ])
         .on_window_event(|window, event| {
             match event {

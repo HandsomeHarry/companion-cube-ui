@@ -1,4 +1,4 @@
-import { Home, Settings, Ghost, Coffee, BookOpen, Brain, BarChart2, Info } from 'lucide-react'
+import { Home, Settings, Ghost, Coffee, BookOpen, Brain, BarChart2, Archive } from 'lucide-react'
 import { getThemeClasses } from '../utils/theme'
 import { modeDescriptions, spacing, typography, borderRadius, elevation, transitions } from '../utils/designSystem'
 
@@ -75,15 +75,31 @@ function Sidebar({ currentMode, onModeChange, currentPage, onPageChange, isDarkM
             <BarChart2 className="w-5 h-5" strokeWidth={2} />
             <span className="font-medium text-sm">History</span>
           </button>
-          <button 
-            onClick={() => onPageChange('settings')}
+          <button
+            onClick={() => onPageChange('vault')}
             className={`w-full flex items-center space-x-2 px-3 py-2 rounded-lg transition-all duration-150 ${
-              currentPage === 'settings' 
-                ? 'text-white shadow-inner' 
+              currentPage === 'vault'
+                ? 'text-white shadow-inner'
                 : `${themeClasses.textPrimary} hover:bg-white/[0.04]`
             }`}
-            style={{ 
-              backgroundColor: currentPage === 'settings' 
+            style={{
+              backgroundColor: currentPage === 'vault'
+                ? themeClasses.primary
+                : 'transparent'
+            }}
+          >
+            <Archive className="w-5 h-5" strokeWidth={2} />
+            <span className="font-medium text-sm">Vault</span>
+          </button>
+          <button
+            onClick={() => onPageChange('settings')}
+            className={`w-full flex items-center space-x-2 px-3 py-2 rounded-lg transition-all duration-150 ${
+              currentPage === 'settings'
+                ? 'text-white shadow-inner'
+                : `${themeClasses.textPrimary} hover:bg-white/[0.04]`
+            }`}
+            style={{
+              backgroundColor: currentPage === 'settings'
                 ? themeClasses.primary
                 : 'transparent'
             }}

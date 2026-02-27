@@ -887,6 +887,102 @@ pub async fn sync_all_activities(
     }
 }
 
+// ===== Vault Commands =====
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VaultItem {
+    pub id: String,
+    pub title: String,
+    pub source_app: String,
+    pub url: Option<String>,
+    pub saved_at: String,
+    pub is_favorited: bool,
+    pub notes: String,
+}
+
+fn vault_file_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("data").join("vault.json")
+}
+
+fn read_vault_items() -> Vec<VaultItem> {
+    let path = vault_file_path();
+    if !path.exists() {
+        return Vec::new();
+    }
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    serde_json::from_str::<Vec<VaultItem>>(&content).unwrap_or_default()
+}
+
+fn persist_vault_items(items: &[VaultItem]) -> Result<(), String> {
+    let data_dir = std::path::PathBuf::from("data");
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| format!("Failed to create data dir: {}", e))?;
+    let json = serde_json::to_string_pretty(items)
+        .map_err(|e| format!("Failed to serialize vault: {}", e))?;
+    std::fs::write(vault_file_path(), json)
+        .map_err(|e| format!("Failed to write vault: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn save_to_vault(
+    title: String,
+    source_app: String,
+    url: Option<String>,
+) -> Result<VaultItem, String> {
+    let mut items = read_vault_items();
+    let item = VaultItem {
+        id: chrono::Utc::now().timestamp_millis().to_string(),
+        title,
+        source_app,
+        url,
+        saved_at: chrono::Utc::now().to_rfc3339(),
+        is_favorited: false,
+        notes: String::new(),
+    };
+    items.push(item.clone());
+    persist_vault_items(&items)?;
+    Ok(item)
+}
+
+#[tauri::command]
+pub async fn get_vault_items() -> Result<Vec<VaultItem>, String> {
+    let mut items = read_vault_items();
+    items.reverse(); // newest first
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn update_vault_item(
+    id: String,
+    is_favorited: bool,
+    notes: String,
+) -> Result<(), String> {
+    let mut items = read_vault_items();
+    let item = items
+        .iter_mut()
+        .find(|i| i.id == id)
+        .ok_or_else(|| format!("Vault item '{}' not found", id))?;
+    item.is_favorited = is_favorited;
+    item.notes = notes;
+    persist_vault_items(&items)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_vault_item(id: String) -> Result<(), String> {
+    let mut items = read_vault_items();
+    let before = items.len();
+    items.retain(|i| i.id != id);
+    if items.len() == before {
+        return Err(format!("Vault item '{}' not found", id));
+    }
+    persist_vault_items(&items)?;
+    Ok(())
+}
+
+// ===== End Vault Commands =====
+
 async fn categorize_all_apps(
     app: &AppHandle,
     db: &crate::modules::database::PatternDatabase,

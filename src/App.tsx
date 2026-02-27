@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar'
 import Settings from './components/Settings'
 import History from './components/History'
 import Nudge, { NudgeMessage } from './components/Nudge'
+import Vault from './components/Vault'
 import { getThemeClasses } from './utils/theme'
 
 interface ConnectionStatus {
@@ -314,10 +315,16 @@ function App() {
     }
   }
 
-  const handleSaveForLater = (nudge: NudgeMessage) => {
-    // Phase 2 will invoke the Tauri vault command here.
-    // For now, log it and dismiss so the UX flow is complete.
-    console.log('Saved to vault (stub):', nudge.title, nudge.body)
+  const handleSaveForLater = async (nudge: NudgeMessage) => {
+    try {
+      await invoke('save_to_vault', {
+        title: nudge.body,
+        source_app: nudge.title,
+        url: null,
+      })
+    } catch (error) {
+      console.error('Failed to save to vault:', error)
+    }
     setSnoozeCount(0)
     setActiveNudge(null)
   }
@@ -328,6 +335,8 @@ function App() {
         return <Settings isDarkMode={isDarkMode} currentMode={currentMode} connectionStatus={connectionStatus} />
       case 'history':
         return <History isDarkMode={isDarkMode} currentMode={currentMode} />
+      case 'vault':
+        return <Vault isDarkMode={isDarkMode} currentMode={currentMode} />
       case 'home':
       default:
         return (
