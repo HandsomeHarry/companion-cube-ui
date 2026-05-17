@@ -30,3 +30,22 @@ windows = { version = "0.62", features = [
     "Storage_Streams",
 ] }
 active-win-pos-rs = "0.10"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+block = "0.1"
+icrate = { version = "0.1", features = [
+    "Foundation",
+    "Foundation_NSNotificationCenter",
+    "Foundation_NSRunLoop",
+    "Foundation_NSAutoreleasePool",
+    "Foundation_NSData",
+    "Foundation_NSString",
+    "Foundation_NSURL",
+    "Foundation_NSArray",
+    "AppKit",
+    "AppKit_NSWorkspace",
+    "AppKit_NSRunningApplication",
+] }
+core-graphics = "0.25"
+core-foundation = "0.10"
