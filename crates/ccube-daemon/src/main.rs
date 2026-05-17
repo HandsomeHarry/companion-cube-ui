@@ -3,6 +3,10 @@ mod scheduler;
 
 use anyhow::{Context, Result};
 use ccube_capture::ActivityCapture;
+#[cfg(target_os = "windows")]
+use ccube_capture::windows::WinActivityCapture;
+#[cfg(target_os = "macos")]
+use ccube_capture::macos::MacActivityCapture;
 use ccube_core::{db, focus_mode, llm, memory, paths::DataRoot};
 use std::collections::HashMap;
 use std::path::Path;
@@ -222,7 +226,10 @@ async fn main() -> Result<()> {
 async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()> {
     tracing::info!("capture loop starting");
 
-    let capture = ccube_capture::windows::WinActivityCapture::new();
+    #[cfg(target_os = "windows")]
+    let capture = WinActivityCapture::new();
+    #[cfg(target_os = "macos")]
+    let capture = MacActivityCapture::new();
     let mut rx = capture.subscribe().await;
 
     let conn = db::open_events_db(&state.data_root.data_dir)?;
@@ -255,6 +262,15 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                     }
                     ccube_capture::ActivityEvent::IdleEnd { ts } => {
                         ("idle_end", *ts, None, None, None)
+                    }
+                    ccube_capture::ActivityEvent::OcrReady { text, ts: _ } => {
+                        // Write OCR text to the most recent app_focus event
+                        if let Some(&(prev_id, _)) = last_event.get("app_focus") {
+                            if let Err(e) = db::update_event_ocr(&conn, prev_id, text) {
+                                tracing::warn!(error = %e, "failed to update OCR text");
+                            }
+                        }
+                        continue;
                     }
                 };
 
@@ -306,7 +322,10 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
             }
             () = cancel.cancelled() => {
                 tracing::info!("capture loop shutting down");
+                #[cfg(target_os = "windows")]
                 ccube_capture::windows::request_shutdown();
+                #[cfg(target_os = "macos")]
+                ccube_capture::macos::request_shutdown();
 
                 // Drain remaining events
                 while let Ok(event) = rx.try_recv() {
@@ -325,6 +344,12 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                         }
                         ccube_capture::ActivityEvent::IdleEnd { ts } => {
                             ("idle_end", *ts, None, None, None)
+                        }
+                        ccube_capture::ActivityEvent::OcrReady { text, ts: _ } => {
+                            if let Some(&(prev_id, _)) = last_event.get("app_focus") {
+                                let _ = db::update_event_ocr(&conn, prev_id, text);
+                            }
+                            continue;
                         }
                     };
                     let mode = if kind == "app_focus" {
