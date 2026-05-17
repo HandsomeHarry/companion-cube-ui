@@ -1,0 +1,28 @@
+# Build artifacts
+target/
+debug/
+release/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Runtime data (created at %APPDATA%\ccube, not in repo)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.ndjson
+
+# Environment / secrets
+.env
+
+# Temporary files
+*.tmp
+nul
