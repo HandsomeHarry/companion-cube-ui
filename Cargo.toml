@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "crates/ccube-core",
+    "crates/ccube-capture",
+    "crates/ccube-daemon",
+    "crates/ccube-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
