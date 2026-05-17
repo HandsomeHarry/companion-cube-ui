@@ -24,6 +24,10 @@ pub enum ActivityEvent {
     IdleEnd {
         ts: i64,
     },
+    OcrReady {
+        text: String,
+        ts: i64,
+    },
 }
 
 /// Platform-agnostic activity capture trait.
