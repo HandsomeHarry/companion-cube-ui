@@ -136,7 +136,6 @@ fn capture_thread_main(tx: mpsc::Sender<ActivityEvent>) {
     let ocr_timer = create_timer(OCR_INTERVAL_SECS, OCR_INTERVAL_SECS, ocr_timer_callback);
     run_loop.add_timer(&ocr_timer, unsafe { kCFRunLoopDefaultMode });
 
-    tracing::info!("macOS capture thread started");
 
     CFRunLoop::run_current();
 
@@ -159,6 +158,10 @@ fn register_focus_notification() {
         handle_focus_change();
     });
     let block = block.copy();
+    // Get raw pointer before forgetting — NSNotificationCenter holds this for app lifetime.
+    // If we don't leak, Rust drops the block on return and ObjC calls freed memory.
+    let block_ptr: *const c_void = &*block as *const _ as *const c_void;
+    std::mem::forget(block);
 
     unsafe {
         let center: *mut Object = msg_send![class!(NSNotificationCenter), defaultCenter];
@@ -170,7 +173,7 @@ fn register_focus_notification() {
             addObserverForName: name
             object: workspace
             queue: ptr::null::<*mut c_void>()
-            usingBlock: &*block as *const _ as *const c_void
+            usingBlock: block_ptr
         ];
     }
 }
@@ -357,21 +360,36 @@ unsafe fn get_idle_seconds() -> f64 {
 // ---------------------------------------------------------------------------
 
 unsafe fn ax_is_process_trusted() -> bool {
-    msg_send![class!(AXUIElement), isProcessTrusted]
+    AXIsProcessTrusted()
 }
 
 unsafe fn current_frontmost_app() -> Option<String> {
-    let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
-    let app: *mut Object = msg_send![workspace, frontmostApplication];
-    if app.is_null() {
+    // NSWorkspace must be called from the main thread.
+    // Use NSProcessInfo + ActiveApp via C API to avoid thread issues.
+    // Actually, use a simple osascript subprocess — thread-safe and reliable.
+    let output = std::process::Command::new("osascript")
+        .args(["-e", "tell application \"System Events\" to get name of first process whose frontmost is true"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
         return None;
     }
-    let url: *mut Object = msg_send![app, executableURL];
-    if url.is_null() {
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() { None } else { Some(name) }
+}
+
+unsafe fn get_frontmost_pid() -> Option<i32> {
+    // NSWorkspace.frontmostApplication is main-thread-only.
+    // Use osascript subprocess — thread-safe.
+    let output = std::process::Command::new("osascript")
+        .args(["-e", "tell application \"System Events\" to get unix id of first process whose frontmost is true"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
         return None;
     }
-    let last: *mut Object = msg_send![url, lastPathComponent];
-    nsstring_to_string(last)
+    let pid_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    pid_str.parse::<i32>().ok()
 }
 
 unsafe fn get_frontmost_window_title() -> Option<String> {
@@ -389,16 +407,6 @@ unsafe fn get_frontmost_window_title() -> Option<String> {
     cf_release(win);
     cf_release(ax_app);
     title
-}
-
-unsafe fn get_frontmost_pid() -> Option<i32> {
-    let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
-    let app: *mut Object = msg_send![workspace, frontmostApplication];
-    if app.is_null() {
-        return None;
-    }
-    let pid: i32 = msg_send![app, processIdentifier];
-    Some(pid)
 }
 
 unsafe fn get_browser_url() -> Option<String> {
@@ -419,32 +427,32 @@ unsafe fn get_browser_url() -> Option<String> {
 }
 
 unsafe fn ax_create_application(pid: i32) -> *mut Object {
-    msg_send![class!(AXUIElement), CreateApplication: pid]
+    AXUIElementCreateApplication(pid)
 }
 
 unsafe fn ax_copy_attribute(element: *mut Object, attr: &str) -> *mut Object {
     let attr_ns = ns_string(attr);
     let mut value: *mut Object = ptr::null_mut();
-    let err: i32 = msg_send![element, CopyAttributeValue: attr_ns attribute: &mut value as *mut _];
+    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
     if err != 0 { ptr::null_mut() } else { value }
 }
 
 unsafe fn ax_copy_string_attribute(element: *mut Object, attr: &str) -> Option<String> {
     let attr_ns = ns_string(attr);
     let mut value: *mut Object = ptr::null_mut();
-    let err: i32 = msg_send![element, CopyAttributeValue: attr_ns attribute: &mut value as *mut _];
+    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
     if err != 0 || value.is_null() {
         return None;
     }
     let result = nsstring_to_string(value);
-    cf_release(value);
+    CFRelease(value as *mut c_void);
     result
 }
 
 unsafe fn ax_copy_attribute_array(element: *mut Object, attr: &str) -> Vec<*mut Object> {
     let attr_ns = ns_string(attr);
     let mut value: *mut Object = ptr::null_mut();
-    let err: i32 = msg_send![element, CopyAttributeValue: attr_ns attribute: &mut value as *mut _];
+    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
     if err != 0 || value.is_null() {
         return Vec::new();
     }
@@ -456,7 +464,7 @@ unsafe fn ax_copy_attribute_array(element: *mut Object, attr: &str) -> Vec<*mut 
             items.push(item);
         }
     }
-    cf_release(value);
+    CFRelease(value as *mut c_void);
     items
 }
 
@@ -526,9 +534,12 @@ unsafe fn ns_autorelease_pool_new() -> *mut Object {
     msg_send![class!(NSAutoreleasePool), new]
 }
 
-/// CFRelease.
-#[link(name = "CoreFoundation", kind = "framework")]
+/// Accessibility framework functions — AXUIElement is a CF type, not an ObjC class.
+#[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
+    fn AXIsProcessTrusted() -> bool;
+    fn AXUIElementCreateApplication(pid: i32) -> *mut Object;
+    fn AXUIElementCopyAttributeValue(element: *mut Object, attribute: *mut Object, value: *mut *mut Object) -> i32;
     fn CFRelease(cf: *mut c_void);
 }
 
