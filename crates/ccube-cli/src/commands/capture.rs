@@ -1,6 +1,9 @@
 use anyhow::Result;
 use ccube_capture::ActivityCapture;
+#[cfg(target_os = "windows")]
 use ccube_capture::windows::WinActivityCapture;
+#[cfg(target_os = "macos")]
+use ccube_capture::macos::MacActivityCapture;
 use ccube_core::db;
 use ccube_core::focus_mode;
 use std::collections::HashMap;
@@ -15,7 +18,10 @@ pub async fn handle_capture_run(root: &DataRoot) -> Result<()> {
 
     println!("Starting capture... Press Ctrl+C to stop.");
 
+    #[cfg(target_os = "windows")]
     let capture = WinActivityCapture::new();
+    #[cfg(target_os = "macos")]
+    let capture = MacActivityCapture::new();
     let mut rx = capture.subscribe().await;
 
     // Track the last event per kind for duration calculation: kind -> (row_id, start_ts)
@@ -49,6 +55,15 @@ pub async fn handle_capture_run(root: &DataRoot) -> Result<()> {
                     }
                     ccube_capture::ActivityEvent::IdleEnd { ts } => {
                         ("idle_end", *ts, None, None, None)
+                    }
+                    ccube_capture::ActivityEvent::OcrReady { text, ts } => {
+                        if let Some(&(prev_id, _)) = last_event.get("app_focus") {
+                            let _ = db::update_event_ocr(&conn, prev_id, text);
+                        }
+                        let time_str = format_time_ms(*ts);
+                        println!("[{time_str}] ocr: {} chars", text.len());
+                        event_count += 1;
+                        continue;
                     }
                 };
 
@@ -107,7 +122,10 @@ pub async fn handle_capture_run(root: &DataRoot) -> Result<()> {
             }
             _ = tokio::signal::ctrl_c() => {
                 println!("\nShutting down...");
+                #[cfg(target_os = "windows")]
                 ccube_capture::windows::request_shutdown();
+                #[cfg(target_os = "macos")]
+                ccube_capture::macos::request_shutdown();
 
                 // Drain remaining events
                 while let Ok(event) = rx.try_recv() {
@@ -126,6 +144,13 @@ pub async fn handle_capture_run(root: &DataRoot) -> Result<()> {
                         }
                         ccube_capture::ActivityEvent::IdleEnd { ts } => {
                             ("idle_end", *ts, None, None, None)
+                        }
+                        ccube_capture::ActivityEvent::OcrReady { text, ts: _ } => {
+                            if let Some(&(prev_id, _)) = last_event.get("app_focus") {
+                                let _ = db::update_event_ocr(&conn, prev_id, text);
+                            }
+                            event_count += 1;
+                            continue;
                         }
                     };
                     let mode = if kind == "app_focus" {
