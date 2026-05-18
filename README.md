@@ -9,11 +9,9 @@ Companion Cube helps you work *with* your brain, not against it. Instead of bloc
 ## Getting Started
 
 ### Installation
-1. Get [ActivityWatch](https://activitywatch.net/) and follow the setup.
-   
-2. Install [Ollama](https://ollama.ai) and follow the setup. No need to download the model just yet.
+1. Install [Ollama](https://ollama.ai) and follow the setup. No need to download the model just yet.
 
-3. Download Companion Cube from [Releases](https://github.com/HandsomeHarry/companion-cube-ui/releases), keep it in a separate folder.
+2. Download Companion Cube from [Releases](https://github.com/HandsomeHarry/companion-cube-ui/releases), keep it in a separate folder.
 
 
 
@@ -69,22 +67,22 @@ Gentle, not naggy.
 ## How It Works
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  ActivityWatch  │────▶│   Local LLM     │────▶│   Nudge User    │
-│  (tracking)     │     │   (Qwen3-8B)    │     │   or Stay Silent│
-└─────────────────┘     └────────┬────────┘     └─────────────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │  Daily Learning │
-                        │  Loop (LoRA)    │
-                        └─────────────────┘
-                                 ▲
-                                 │
-                        ┌─────────────────┐
-                        │ User Corrections│
-                        │ (drag/edit)     │
-                        └─────────────────┘
+┌──────────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Native Capture      │────▶│   Local LLM     │────▶│   Nudge User    │
+│  (app focus, title,  │     │   (Qwen3-8B)    │     │   or Stay Silent│
+│   URL, OCR, idle)    │     └────────┬────────┘     └─────────────────┘
+└──────────────────────┘               │
+                                       ▼
+                              ┌─────────────────┐
+                              │  Daily Learning │
+                              │  Loop (LoRA)    │
+                              └─────────────────┘
+                                       ▲
+                                       │
+                              ┌─────────────────┐
+                              │ User Corrections│
+                              │ (drag/edit)     │
+                              └─────────────────┘
 ```
 ---
 
