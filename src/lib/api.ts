@@ -1,4 +1,4 @@
-import type { EventRow } from './types';
+import type { EventRow, SummariesResponse } from './types';
 
 const BASE = 'http://127.0.0.1:7431';
 
@@ -32,5 +32,20 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
+    }),
+
+  // Summaries
+  summaries: () =>
+    request<SummariesResponse | null>('/summaries'),
+
+  summarize: () =>
+    request<SummariesResponse>('/summarize', { method: 'POST' }),
+
+  // Group corrections
+  groupCorrection: (data: { event_id: number; from_group: string; to_group: string; renamed_to?: string }) =>
+    request<{ status: string; message: string }>('/corrections/group', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
     }),
 };

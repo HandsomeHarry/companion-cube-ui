@@ -51,6 +51,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/shutdown", post(shutdown))
         .route("/corrections", get(list_corrections_handler).post(create_correction))
         .route("/corrections/{id}", get(get_correction_handler))
+        .route("/corrections/group", post(create_group_correction))
         .route("/decisions", get(list_decisions_handler))
         .route("/agents/curator/run", post(run_curator_handler))
         .route("/agents/reflector/run", post(run_reflector_handler))
@@ -967,4 +968,72 @@ async fn run_summarize_handler(
     let result = run_summarize(&state).await?;
     *state.cached_summaries.write().await = Some(result.clone());
     Ok(Json(result))
+}
+
+// ---------- Group correction endpoints ----------
+
+#[derive(Deserialize)]
+struct GroupCorrectionRequest {
+    /// The event ID that was moved
+    event_id: i64,
+    /// The group title the event was moved FROM
+    from_group: String,
+    /// The group title the event was moved TO
+    to_group: String,
+    /// Optional: new title for a renamed group
+    renamed_to: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GroupCorrectionResponse {
+    status: String,
+    message: String,
+}
+
+/// POST /corrections/group — record a user grouping correction.
+/// This is the key feedback loop: when the user drags an event between groups
+/// or renames a group, we record it for future LLM improvement.
+async fn create_group_correction(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<GroupCorrectionRequest>,
+) -> Result<Json<GroupCorrectionResponse>, ApiError> {
+    // Write to corrections DB as a simple record
+    let conn =
+        db::open_corrections_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+
+    // Store as a correction with verdict = "group_reassign"
+    // decision_id = event_id (reuse field)
+    let verdict = format!(
+        "group_reassign: event {} from '{}' to '{}'{}",
+        body.event_id,
+        body.from_group,
+        body.to_group,
+        body.renamed_to
+            .as_ref()
+            .map(|r| format!(", renamed to '{}'", r))
+            .unwrap_or_default()
+    );
+
+    // Use event_id as decision_id (it's just a reference)
+    db::insert_correction(
+        &conn,
+        body.event_id,
+        "group_assign",
+        &verdict,
+        "{}",
+        "",
+    )
+    .map_err(ApiError::internal)?;
+
+    tracing::info!(
+        event_id = body.event_id,
+        from = %body.from_group,
+        to = %body.to_group,
+        "group correction recorded"
+    );
+
+    Ok(Json(GroupCorrectionResponse {
+        status: "ok".to_string(),
+        message: format!("Recorded: event {} moved from '{}' to '{}'", body.event_id, body.from_group, body.to_group),
+    }))
 }

@@ -16,3 +16,15 @@ export interface VaultItem {
   items: string;
   favorited: boolean;
 }
+
+export interface SessionGroup {
+  title: string;
+  distraction: boolean;
+  events: EventRow[];
+  total_duration_ms: number;
+}
+
+export interface SummariesResponse {
+  generated_at: number;
+  groups: SessionGroup[];
+}
