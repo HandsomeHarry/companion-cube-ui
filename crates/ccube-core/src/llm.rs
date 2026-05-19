@@ -105,8 +105,9 @@ impl LlamaCppClient {
             }
         });
 
+        let timeout_secs = self.timeout.as_secs().max(30);
         let agent = ureq::AgentBuilder::new()
-            .timeout_read(Duration::from_secs(300))
+            .timeout_read(Duration::from_secs(timeout_secs))
             .timeout_write(Duration::from_secs(30))
             .build();
 
@@ -204,8 +205,9 @@ impl LlamaCppClient {
             },
         };
 
+        let timeout_secs = self.timeout.as_secs().max(30);
         let agent = ureq::AgentBuilder::new()
-            .timeout_read(Duration::from_secs(300))
+            .timeout_read(Duration::from_secs(timeout_secs))
             .timeout_write(Duration::from_secs(30))
             .build();
 

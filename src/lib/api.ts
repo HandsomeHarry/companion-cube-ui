@@ -8,7 +8,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!res.ok) {
-    throw new Error(`daemon ${res.status}: ${res.statusText}`);
+    const text = await res.text().catch(() => '');
+    const detail = text ? `: ${text.slice(0, 200)}` : '';
+    throw new Error(`daemon ${res.status}${detail}`);
   }
   return res.json();
 }

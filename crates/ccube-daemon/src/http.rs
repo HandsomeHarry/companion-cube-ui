@@ -763,6 +763,19 @@ async fn set_llm_config(
     }))
 }
 
+// ---------- Summarize constants ----------
+
+/// How far back to look for events when summarizing.
+const SUMMARIZE_LOOKBACK_HOURS: i64 = 2;
+/// Minimum duration (ms) for an event to be included in summary.
+const SUMMARIZE_MIN_DURATION_MS: i64 = 3000;
+/// Maximum number of events to send to the LLM.
+const SUMMARIZE_MAX_EVENTS: usize = 15;
+/// Maximum tokens for LLM response.
+const SUMMARIZE_MAX_TOKENS: u32 = 16384;
+/// LLM temperature for summarization.
+const SUMMARIZE_TEMPERATURE: f32 = 0.3;
+
 // ---------- Summarize endpoints ----------
 
 /// Extract JSON object from text that may contain reasoning/thinking before it.
@@ -774,20 +787,16 @@ fn extract_json(text: &str) -> String {
         return text.to_string();
     }
     let json = &text[start..end];
-    // Fix missing commas between fields (common LLM mistake): "] " -> "], "
-    let fixed = regex_lazy_fix(json);
+    // Try as-is first
+    if serde_json::from_str::<serde_json::Value>(json).is_ok() {
+        return json.to_string();
+    }
+    // If invalid, try fixing missing commas between array and next field
+    let fixed = json
+        .replace("] \"", "], \"")
+        .replace(")]\""  , "),\"")
+        .replace("}\"", "},\"");
     fixed
-}
-
-/// Fix common JSON formatting issues from LLMs without pulling in regex.
-fn regex_lazy_fix(s: &str) -> String {
-    // Fix: ] followed by space and a key name (missing comma between array and next field)
-    // e.g. "[1,2,3] \"distraction\"" -> "[1,2,3], \"distraction\""
-    let mut result = s.to_string();
-    // Pattern: ]" -> ],"  where there's a " after ] with no comma
-    result = result.replace("] \"", "], \"");
-    result = result.replace("]\""  , "],\"");
-    result
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -862,14 +871,14 @@ pub async fn run_summarize(state: &AppState) -> Result<SummariesResponse, ApiErr
     let conn =
         db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
     let now = chrono::Utc::now().timestamp_millis();
-    let since = now - 2 * 3_600_000; // last 2 hours
+    let since = now - SUMMARIZE_LOOKBACK_HOURS * 3_600_000;
     let all_events = db::query_recent_events(&conn, since).map_err(ApiError::internal)?;
 
     // Filter to app_focus events only
     let events: Vec<_> = all_events
         .into_iter()
-        .filter(|e| e.kind == "app_focus" && e.duration_ms.unwrap_or(0) > 3000)
-        .take(15) // limit to 15 most recent for speed
+        .filter(|e| e.kind == "app_focus" && e.duration_ms.unwrap_or(0) > SUMMARIZE_MIN_DURATION_MS)
+        .take(SUMMARIZE_MAX_EVENTS)
         .collect();
 
     if events.is_empty() {
@@ -883,7 +892,7 @@ pub async fn run_summarize(state: &AppState) -> Result<SummariesResponse, ApiErr
     let prompt = build_summarize_prompt(&events);
     let response = state
         .llm
-        .complete(&prompt, "", 16384, 0.3)
+        .complete(&prompt, "", SUMMARIZE_MAX_TOKENS, SUMMARIZE_TEMPERATURE)
         .await
         .map_err(|e| ApiError::internal(format!("LLM call failed: {e}")))?;
 
@@ -898,7 +907,7 @@ pub async fn run_summarize(state: &AppState) -> Result<SummariesResponse, ApiErr
     }
 
     let output: SummarizeOutput = serde_json::from_str(&json_str).map_err(|e| {
-        ApiError::internal(format!("Failed to parse LLM response: {e}\nContent: {}", &content[..content.len().min(500)]))
+        ApiError::internal(format!("Failed to parse LLM response: {e}\nContent: {}", content.chars().take(500).collect::<String>()))
     })?;
 
     // Map 1-based indices from LLM back to actual events
@@ -909,6 +918,10 @@ pub async fn run_summarize(state: &AppState) -> Result<SummariesResponse, ApiErr
     for group in &output.groups {
         let mut group_events = Vec::new();
         for &id in &group.event_ids {
+            if id < 1 {
+                tracing::warn!(id, "LLM returned invalid event_id (must be >= 1)");
+                continue;
+            }
             let idx = (id - 1) as usize; // convert 1-based to 0-based
             if idx < events.len() {
                 group_events.push(events[idx].clone());

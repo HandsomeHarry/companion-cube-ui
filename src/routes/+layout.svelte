@@ -21,25 +21,28 @@
 
   // History state — local mutable copies of groups for drag/rename
   let localGroups: SessionGroup[] = [];
-  let expandedGroups = new Set<number>();
+  let expandedGroups: number[] = [];
   let editingGroupIdx: number | null = null;
   let editTitle = '';
   let dragEvent: { event: EventRow; fromIdx: number } | null = null;
   let dragOverIdx: number | null = null;
+  let lastGeneratedAt: number = 0; // guard against overwriting user edits
 
-  $: if ($summaries?.groups) {
-    // Deep-copy so we can mutate locally (drag, rename)
+  $: if ($summaries?.groups && $summaries.generated_at !== lastGeneratedAt) {
+    lastGeneratedAt = $summaries.generated_at;
     localGroups = $summaries.groups.map(g => ({
       ...g,
       events: [...g.events],
     }));
-    expandedGroups = new Set(localGroups.map((_, i) => i)); // expand all by default
+    expandedGroups = localGroups.map((_, i) => i); // expand all by default
   }
 
   function toggleGroup(idx: number) {
-    if (expandedGroups.has(idx)) expandedGroups.delete(idx);
-    else expandedGroups.add(idx);
-    expandedGroups = expandedGroups;
+    if (expandedGroups.includes(idx)) {
+      expandedGroups = expandedGroups.filter(i => i !== idx);
+    } else {
+      expandedGroups = [...expandedGroups, idx];
+    }
   }
 
   function handleGroupKeydown(e: KeyboardEvent) {
@@ -377,10 +380,10 @@
                   {/if}
                   <span class="tl-header__count">{group.events.length}</span>
                   <span class="tl-header__dur">{formatDuration(group.total_duration_ms)}</span>
-                  <span class="tl-header__toggle">{expandedGroups.has(idx) ? '▾' : '▸'}</span>
+                  <span class="tl-header__toggle">{expandedGroups.includes(idx) ? '▾' : '▸'}</span>
                 </div>
 
-                {#if expandedGroups.has(idx)}
+                {#if expandedGroups.includes(idx)}
                   <div class="tl-items">
                     {#each group.events as event (event.id)}
                       <div class="tl-item"
