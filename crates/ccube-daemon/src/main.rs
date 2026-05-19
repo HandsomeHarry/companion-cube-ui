@@ -1,4 +1,4 @@
-mod http;
+pub mod http;
 mod scheduler;
 
 use anyhow::{Context, Result};
@@ -136,6 +136,7 @@ async fn main() -> Result<()> {
     // 8. Create shared state
     let cancel = CancellationToken::new();
     let detector_trigger = Arc::new(Notify::new());
+    let cached_summaries = Arc::new(tokio::sync::RwLock::new(None));
 
     let state = Arc::new(AppState {
         data_root: root,
@@ -150,6 +151,7 @@ async fn main() -> Result<()> {
         detector_trigger: detector_trigger.clone(),
         curator_mutex: Arc::new(tokio::sync::Mutex::new(())),
         curator_schedule_hour,
+        cached_summaries,
     });
 
     // 9. Spawn capture loop
@@ -166,6 +168,30 @@ async fn main() -> Result<()> {
     let scheduler_state = state.clone();
     let scheduler_handle =
         tokio::spawn(scheduler::run_scheduler(scheduler_state, scheduler_cancel));
+
+    // 8b. Spawn summarize scheduler (every 5 min)
+    let summarize_state = state.clone();
+    let summarize_cancel = cancel.clone();
+    let summarize_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(300));
+        interval.tick().await; // skip the first immediate tick
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    match http::run_summarize(&summarize_state).await {
+                        Ok(result) => {
+                            *summarize_state.cached_summaries.write().await = Some(result);
+                            tracing::info!("auto-summarization complete");
+                        }
+                        Err(e) => {
+                            tracing::warn!("auto-summarization failed: {:?}", e);
+                        }
+                    }
+                }
+                _ = summarize_cancel.cancelled() => break,
+            }
+        }
+    });
 
     // 9. Bind HTTP server
     let listener = TcpListener::bind("127.0.0.1:7431").await?;
@@ -200,6 +226,7 @@ async fn main() -> Result<()> {
     let shutdown_result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         let _ = capture_handle.await;
         let _ = scheduler_handle.await;
+        let _ = summarize_handle.await;
         let _ = server_handle.await;
     })
     .await;

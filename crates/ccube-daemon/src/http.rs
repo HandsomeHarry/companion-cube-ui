@@ -34,6 +34,8 @@ pub struct AppState {
     pub curator_mutex: Arc<tokio::sync::Mutex<()>>,
     /// Hour of day (0-23, local time) to run scheduled curator. Default 5 (5 AM).
     pub curator_schedule_hour: u32,
+    /// Cached LLM-generated session summaries (auto-refreshed every 5 min).
+    pub cached_summaries: Arc<tokio::sync::RwLock<Option<SummariesResponse>>>,
 }
 
 /// Build the axum router with all endpoints.
@@ -56,6 +58,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/agents/reflector/accept", post(accept_pending_handler))
         .route("/agents/reflector/reject", post(reject_pending_handler))
         .route("/config/llm", get(get_llm_config).put(set_llm_config))
+        .route("/summaries", get(get_summaries))
+        .route("/summarize", post(run_summarize_handler))
         .layer(
             CorsLayer::permissive()
         )
@@ -117,7 +121,8 @@ struct ApiErrorEnvelope {
     error: ApiErrorBody,
 }
 
-struct ApiError {
+#[derive(Debug)]
+pub struct ApiError {
     status: StatusCode,
     code: String,
     message: String,
@@ -755,4 +760,211 @@ async fn set_llm_config(
             updated.len()
         ),
     }))
+}
+
+// ---------- Summarize endpoints ----------
+
+/// Extract JSON object from text that may contain reasoning/thinking before it.
+fn extract_json(text: &str) -> String {
+    // Find the first { and last }
+    let start = text.find('{').unwrap_or(0);
+    let end = text.rfind('}').map(|i| i + 1).unwrap_or(text.len());
+    if start >= end {
+        return text.to_string();
+    }
+    let json = &text[start..end];
+    // Fix missing commas between fields (common LLM mistake): "] " -> "], "
+    let fixed = regex_lazy_fix(json);
+    fixed
+}
+
+/// Fix common JSON formatting issues from LLMs without pulling in regex.
+fn regex_lazy_fix(s: &str) -> String {
+    // Fix: ] followed by space and a key name (missing comma between array and next field)
+    // e.g. "[1,2,3] \"distraction\"" -> "[1,2,3], \"distraction\""
+    let mut result = s.to_string();
+    // Pattern: ]" -> ],"  where there's a " after ] with no comma
+    result = result.replace("] \"", "], \"");
+    result = result.replace("]\""  , "],\"");
+    result
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct LlmSessionGroup {
+    title: String,
+    event_ids: Vec<i64>,
+    distraction: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SessionGroupWithEvents {
+    pub title: String,
+    pub distraction: bool,
+    pub events: Vec<ccube_core::db::EventRow>,
+    pub total_duration_ms: i64,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SummariesResponse {
+    pub generated_at: i64,
+    pub groups: Vec<SessionGroupWithEvents>,
+}
+
+/// Build the LLM prompt for summarizing events into sessions.
+fn build_summarize_prompt(events: &[ccube_core::db::EventRow]) -> String {
+    let mut lines = Vec::new();
+    for (i, event) in events.iter().enumerate() {
+        let time = chrono::DateTime::from_timestamp_millis(event.ts)
+            .map(|t| t.format("%H:%M").to_string())
+            .unwrap_or_default();
+        let app = event.app.as_deref().unwrap_or("-");
+        let title = event.title.as_deref().unwrap_or("-");
+        let dur = event
+            .duration_ms
+            .map(|d| format!("{}s", d / 1000))
+            .unwrap_or_else(|| "?s".to_string());
+        lines.push(format!(
+            "{}. [{}] {} – {} ({})",
+            i + 1,
+            time,
+            app,
+            title,
+            dur
+        ));
+    }
+
+    format!(
+        r#"Group these computer activity events into sessions.
+
+Rules:
+- Group consecutive events that belong to the same activity
+- Give each group a short 2-3 word title
+- Mark entertainment/social media as distraction: true, work/focus as distraction: false
+- Include ALL event numbers, do not skip any
+- Events are listed newest first
+- Keep response SHORT
+
+Events:
+{}
+
+Respond with ONLY a JSON object. Use this exact format for each group:
+{{"title":"Name","event_ids":[1,2],"distraction":false}}
+
+Make sure every field is separated by a comma. Output:
+{{"groups":[...]}}"#,
+        lines.join("\n")
+    )
+}
+
+/// Core summarization logic — fetches events, calls LLM, parses response into groups.
+pub async fn run_summarize(state: &AppState) -> Result<SummariesResponse, ApiError> {
+    let conn =
+        db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let since = now - 2 * 3_600_000; // last 2 hours
+    let all_events = db::query_recent_events(&conn, since).map_err(ApiError::internal)?;
+
+    // Filter to app_focus events only
+    let events: Vec<_> = all_events
+        .into_iter()
+        .filter(|e| e.kind == "app_focus" && e.duration_ms.unwrap_or(0) > 3000)
+        .take(15) // limit to 15 most recent for speed
+        .collect();
+
+    if events.is_empty() {
+        return Ok(SummariesResponse {
+            generated_at: now,
+            groups: vec![],
+        });
+    }
+
+    // Build prompt and call LLM
+    let prompt = build_summarize_prompt(&events);
+    let response = state
+        .llm
+        .complete(&prompt, "", 16384, 0.3)
+        .await
+        .map_err(|e| ApiError::internal(format!("LLM call failed: {e}")))?;
+
+    let content = response.content.trim();
+
+    let json_str = extract_json(content);
+
+    // Parse LLM response
+    #[derive(Deserialize)]
+    struct SummarizeOutput {
+        groups: Vec<LlmSessionGroup>,
+    }
+
+    let output: SummarizeOutput = serde_json::from_str(&json_str).map_err(|e| {
+        ApiError::internal(format!("Failed to parse LLM response: {e}\nContent: {}", &content[..content.len().min(500)]))
+    })?;
+
+    // Map 1-based indices from LLM back to actual events
+    // (LLM returns event number 1, 2, 3... not database row IDs)
+    let mut used_indices = std::collections::HashSet::<usize>::new();
+    let mut groups: Vec<SessionGroupWithEvents> = Vec::new();
+
+    for group in &output.groups {
+        let mut group_events = Vec::new();
+        for &id in &group.event_ids {
+            let idx = (id - 1) as usize; // convert 1-based to 0-based
+            if idx < events.len() {
+                group_events.push(events[idx].clone());
+                used_indices.insert(idx);
+            }
+        }
+        if group_events.is_empty() {
+            continue;
+        }
+
+        let total_duration: i64 = group_events.iter().filter_map(|e| e.duration_ms).sum();
+
+        groups.push(SessionGroupWithEvents {
+            title: group.title.clone(),
+            distraction: group.distraction,
+            events: group_events,
+            total_duration_ms: total_duration,
+        });
+    }
+
+    // Add uncategorized events as "Other"
+    let uncategorized: Vec<ccube_core::db::EventRow> = events
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !used_indices.contains(i))
+        .map(|(_, e)| e.clone())
+        .collect();
+
+    if !uncategorized.is_empty() {
+        let total_duration: i64 = uncategorized.iter().filter_map(|e| e.duration_ms).sum();
+        groups.push(SessionGroupWithEvents {
+            title: "Other".to_string(),
+            distraction: false,
+            events: uncategorized,
+            total_duration_ms: total_duration,
+        });
+    }
+
+    Ok(SummariesResponse {
+        generated_at: now,
+        groups,
+    })
+}
+
+/// GET /summaries — return cached summaries.
+async fn get_summaries(
+    State(_state): State<Arc<AppState>>,
+) -> Result<Json<Option<SummariesResponse>>, ApiError> {
+    let cache = _state.cached_summaries.read().await;
+    Ok(Json(cache.clone()))
+}
+
+/// POST /summarize — trigger immediate summarization, update cache, return result.
+async fn run_summarize_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<SummariesResponse>, ApiError> {
+    let result = run_summarize(&state).await?;
+    *state.cached_summaries.write().await = Some(result.clone());
+    Ok(Json(result))
 }

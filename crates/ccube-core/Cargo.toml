@@ -13,7 +13,8 @@ sha2 = "0.10"
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "native-tls"] }
+ureq = { version = "2", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 directories = "6"
 async-trait = "0.1"
