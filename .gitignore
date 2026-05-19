@@ -28,3 +28,10 @@ Thumbs.db
 nul
 ShiyiYu_Portfolio_LQ.pdf
 design/
+
+# Node / Tauri frontend
+node_modules/
+.svelte-kit/
+build/
+src-tauri/target/
+package-lock.json

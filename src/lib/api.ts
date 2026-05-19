@@ -1,0 +1,36 @@
+import type { EventRow } from './types';
+
+const BASE = 'http://127.0.0.1:7431';
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Accept': 'application/json' },
+    ...init,
+  });
+  if (!res.ok) {
+    throw new Error(`daemon ${res.status}: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export const api = {
+  health: () =>
+    request<{ status: string; uptime_s: number; daemon_version: string }>('/health'),
+
+  activity: (hours?: number) =>
+    request<EventRow[]>(`/activity${hours ? `?hours=${hours}` : ''}`),
+
+  recent: () =>
+    request<EventRow[]>('/activity?hours=24'),
+
+  // LLM Configuration
+  getLlmConfig: () =>
+    request<{ provider: string; url: string; model: string; has_token: boolean }>('/config/llm'),
+
+  setLlmConfig: (config: { provider?: string; url?: string; model?: string; token?: string }) =>
+    request<{ status: string; message: string }>('/config/llm', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    }),
+};

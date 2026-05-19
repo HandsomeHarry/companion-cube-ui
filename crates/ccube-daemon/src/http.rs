@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
+use tower_http::cors::CorsLayer;
 
 /// Shared application state for all HTTP handlers.
 pub struct AppState {
@@ -54,6 +55,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/agents/reflector/pending", get(get_pending_handler))
         .route("/agents/reflector/accept", post(accept_pending_handler))
         .route("/agents/reflector/reject", post(reject_pending_handler))
+        .route("/config/llm", get(get_llm_config).put(set_llm_config))
+        .layer(
+            CorsLayer::permissive()
+        )
         .with_state(state)
 }
 
@@ -633,4 +638,121 @@ async fn reject_pending_handler(
 ) -> Result<Json<PendingActionResponse>, ApiError> {
     reflector::reject_pending(&state.data_root.memory_dir).map_err(ApiError::internal)?;
     Ok(Json(PendingActionResponse { status: "rejected" }))
+}
+
+// ---------- LLM Config endpoints ----------
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LlmConfig {
+    pub provider: String,
+    pub url: String,
+    pub model: String,
+    pub token: Option<String>,
+}
+
+#[derive(Serialize)]
+struct LlmConfigResponse {
+    provider: String,
+    url: String,
+    model: String,
+    has_token: bool,
+}
+
+/// GET /config/llm — return current LLM configuration.
+async fn get_llm_config(
+    State(_state): State<Arc<AppState>>,
+) -> Json<LlmConfigResponse> {
+    let provider = std::env::var("CCUBE_LLM_PROVIDER")
+        .unwrap_or_else(|_| "openai-compatible".to_string());
+    let url = std::env::var("CCUBE_LLM_URL")
+        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let model = std::env::var("CCUBE_LLM_MODEL")
+        .unwrap_or_else(|_| "default".to_string());
+    let has_token = std::env::var("CCUBE_LLM_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty())
+        .is_some();
+
+    Json(LlmConfigResponse {
+        provider,
+        url,
+        model,
+        has_token,
+    })
+}
+
+#[derive(Deserialize)]
+struct SetLlmConfigRequest {
+    provider: Option<String>,
+    url: Option<String>,
+    model: Option<String>,
+    token: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SetLlmConfigResponse {
+    status: String,
+    message: String,
+}
+
+/// PUT /config/llm — update LLM configuration in .env file.
+async fn set_llm_config(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SetLlmConfigRequest>,
+) -> Result<Json<SetLlmConfigResponse>, ApiError> {
+    // .env lives in the daemon's working directory (project root)
+    let env_path = std::env::current_dir()
+        .map_err(ApiError::internal)?
+        .join(".env");
+
+    // Read existing .env or create empty
+    let existing = if env_path.exists() {
+        std::fs::read_to_string(&env_path).map_err(ApiError::internal)?
+    } else {
+        String::new()
+    };
+
+    let mut lines: Vec<String> = existing.lines().map(String::from).collect();
+
+    let mut updated = Vec::new();
+
+    if let Some(ref provider) = body.provider {
+        updated.push(("CCUBE_LLM_PROVIDER", provider.clone()));
+    }
+    if let Some(ref url) = body.url {
+        updated.push(("CCUBE_LLM_URL", url.clone()));
+    }
+    if let Some(ref model) = body.model {
+        updated.push(("CCUBE_LLM_MODEL", model.clone()));
+    }
+    if let Some(ref token) = body.token {
+        updated.push(("CCUBE_LLM_TOKEN", token.clone()));
+    }
+
+    // Update or add each key
+    for (key, value) in &updated {
+        let prefix = format!("{}=", key);
+        let mut found = false;
+        for line in &mut lines {
+            if line.starts_with(&prefix) || line.starts_with(&format!("# {}", key)) {
+                *line = format!("{}={}", key, value);
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            lines.push(format!("{}={}", key, value));
+        }
+    }
+
+    let new_content = lines.join("\n");
+    std::fs::write(&env_path, new_content).map_err(ApiError::internal)?;
+
+    Ok(Json(SetLlmConfigResponse {
+        status: "ok".to_string(),
+        message: format!(
+            "Updated {} config key(s). Restart daemon to apply.",
+            updated.len()
+        ),
+    }))
 }
