@@ -24,9 +24,83 @@
   let expandedGroups: number[] = [];
   let editingGroupIdx: number | null = null;
   let editTitle = '';
-  let dragEvent: { event: EventRow; fromIdx: number } | null = null;
-  let dragOverIdx: number | null = null;
+  let dragState: { event: EventRow; fromGroup: string } | null = null;
+  let dragOverGroup: string | null = null;
+  let isDragging = false;
+  let dragX = 0;
+  let dragY = 0;
+
+  // Pointer-based drag: mousedown on ≡ handle → mousemove tracks hover → mouseup drops
+  function startDrag(e: MouseEvent, event: EventRow, groupTitle: string) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragState = { event, fromGroup: groupTitle };
+    isDragging = false;
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragState) return cleanup();
+      isDragging = true;
+      dragX = ev.clientX;
+      dragY = ev.clientY;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (el) {
+        const group = el.closest('[data-group-title]');
+        dragOverGroup = group ? group.getAttribute('data-group-title') : null;
+      }
+    };
+
+    const onUp = () => {
+      if (dragState && dragOverGroup && dragOverGroup !== dragState.fromGroup) {
+        finishDrop(dragState.fromGroup, dragOverGroup, dragState.event);
+      }
+      cleanup();
+    };
+
+    const cleanup = () => {
+      dragState = null;
+      dragOverGroup = null;
+      isDragging = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  async function finishDrop(fromGroupTitle: string, toGroupTitle: string, movedEvent: EventRow) {
+    const fromGroup = localGroups.find(g => g.title === fromGroupTitle);
+    const toGroup = localGroups.find(g => g.title === toGroupTitle);
+    if (!fromGroup || !toGroup) return;
+
+    fromGroup.events = fromGroup.events.filter(e => e.id !== movedEvent.id);
+    toGroup.events.push(movedEvent);
+    fromGroup.total_duration_ms = fromGroup.events.reduce((s, e) => s + (e.duration_ms ?? 0), 0);
+    toGroup.total_duration_ms = toGroup.events.reduce((s, e) => s + (e.duration_ms ?? 0), 0);
+    localGroups = localGroups.filter(g => g.events.length > 0);
+    localGroups = localGroups;
+
+    try {
+      await api.groupCorrection({
+        event_id: movedEvent.id,
+        from_group: fromGroupTitle,
+        to_group: toGroupTitle,
+      });
+    } catch {}
+  }
   let lastGeneratedAt: number = 0; // guard against overwriting user edits
+
+  // Only show grouped view when viewing today's data (summaries are always "now")
+  let showingToday = true;
+  $: showingToday = isSameDay(selectedDate, today) && viewMode === 'day';
+
+  // Filtered events for the selected date range (flat timeline)
+  $: filteredEvents = filterEventsForRange($historyEvents);
+
+  // Time range navigation
+  let viewMode: 'day' | 'week' | 'month' = 'day';
+  let today = new Date();
+  let selectedDate = new Date();
 
   $: if ($summaries?.groups && $summaries.generated_at !== lastGeneratedAt) {
     lastGeneratedAt = $summaries.generated_at;
@@ -62,6 +136,123 @@
 
   function formatTime(ts: number): string {
     return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // --- Date navigation helpers ---
+
+  function isSameDay(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+
+  function addDays(date: Date, n: number): Date {
+    const d = new Date(date);
+    d.setDate(d.getDate() + n);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function startOfWeek(date: Date): Date {
+    const d = new Date(date);
+    const day = d.getDay(); // 0=Sun
+    d.setDate(d.getDate() - day); // go to Sunday
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function endOfWeek(date: Date): Date {
+    const start = startOfWeek(date);
+    return addDays(start, 7);
+  }
+
+  function startOfMonth(date: Date): Date {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+
+  function endOfMonth(date: Date): Date {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 1);
+  }
+
+  function formatNavLabel(): string {
+    if (viewMode === 'day') {
+      if (isSameDay(selectedDate, today)) return `Today, ${selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+      const yesterday = addDays(today, -1);
+      if (isSameDay(selectedDate, yesterday)) return `Yesterday, ${selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+      return selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+    if (viewMode === 'week') {
+      const start = startOfWeek(selectedDate);
+      const end = addDays(start, 6);
+      return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    }
+    // month
+    return selectedDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  }
+
+  function canGoForward(): boolean {
+    if (viewMode === 'day') return !isSameDay(selectedDate, today);
+    if (viewMode === 'week') return endOfWeek(selectedDate) <= addDays(today, 1);
+    return selectedDate.getMonth() < today.getMonth() || selectedDate.getFullYear() < today.getFullYear();
+  }
+
+  function goBack() {
+    if (viewMode === 'day') selectedDate = addDays(selectedDate, -1);
+    else if (viewMode === 'week') selectedDate = addDays(selectedDate, -7);
+    else { const d = new Date(selectedDate); d.setMonth(d.getMonth() - 1); selectedDate = d; }
+    refreshHistory();
+  }
+
+  function goForward() {
+    if (!canGoForward()) return;
+    if (viewMode === 'day') selectedDate = addDays(selectedDate, 1);
+    else if (viewMode === 'week') selectedDate = addDays(selectedDate, 7);
+    else { const d = new Date(selectedDate); d.setMonth(d.getMonth() + 1); selectedDate = d; }
+    refreshHistory();
+  }
+
+  function setViewMode(mode: 'day' | 'week' | 'month') {
+    viewMode = mode;
+    selectedDate = new Date();
+    refreshHistory();
+  }
+
+  function getRangeHours(): number {
+    if (viewMode === 'day') {
+      const diffMs = Date.now() - selectedDate.getTime();
+      const diffHours = Math.ceil(diffMs / 3_600_000);
+      // Always fetch at least 24h of data
+      return Math.max(24, diffHours + 24);
+    }
+    if (viewMode === 'week') return 168; // 7 days
+    return 720; // 30 days
+  }
+
+  function filterEventsForRange(events: EventRow[]): EventRow[] {
+    let start: Date;
+    let end: Date;
+    if (viewMode === 'day') {
+      start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
+      end = addDays(start, 1);
+    } else if (viewMode === 'week') {
+      start = startOfWeek(selectedDate);
+      end = endOfWeek(selectedDate);
+    } else {
+      start = startOfMonth(selectedDate);
+      end = endOfMonth(selectedDate);
+    }
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    return events.filter(e => e.ts >= startMs && e.ts < endMs);
+  }
+
+  async function refreshHistory() {
+    const hours = getRangeHours();
+    try {
+      const events = await api.activity(hours);
+      historyEvents.set(events.reverse());
+    } catch {}
+    try {
+      await fetchSummaries();
+    } catch {}
   }
 
   // Open a link/file based on event data
@@ -107,62 +298,6 @@
   }
 
   // Drag & drop between groups
-  function onDragStart(e: DragEvent, event: EventRow, fromIdx: number) {
-    dragEvent = { event, fromIdx };
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(event.id));
-    }
-  }
-
-  function onDragOver(e: DragEvent, toIdx: number) {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    dragOverIdx = toIdx;
-  }
-
-  function onDragLeave() {
-    dragOverIdx = null;
-  }
-
-  async function onDrop(toIdx: number) {
-    if (!dragEvent || dragEvent.fromIdx === toIdx) {
-      dragEvent = null;
-      dragOverIdx = null;
-      return;
-    }
-
-    const { event: movedEvent, fromIdx } = dragEvent;
-    const fromTitle = localGroups[fromIdx].title;
-    const toTitle = localGroups[toIdx].title;
-
-    // Remove from source, add to target
-    localGroups[fromIdx].events = localGroups[fromIdx].events.filter(e => e.id !== movedEvent.id);
-    localGroups[toIdx].events.push(movedEvent);
-
-    // Recalc durations
-    localGroups[fromIdx].total_duration_ms = localGroups[fromIdx].events.reduce((s, e) => s + (e.duration_ms ?? 0), 0);
-    localGroups[toIdx].total_duration_ms = localGroups[toIdx].events.reduce((s, e) => s + (e.duration_ms ?? 0), 0);
-
-    // Remove empty groups
-    localGroups = localGroups.filter(g => g.events.length > 0);
-
-    localGroups = localGroups; // reactivity
-    dragEvent = null;
-    dragOverIdx = null;
-
-    // Send correction to backend
-    try {
-      await api.groupCorrection({
-        event_id: movedEvent.id,
-        from_group: fromTitle,
-        to_group: toTitle,
-      });
-    } catch {
-      // Silently fail — the UI already moved, correction is best-effort
-    }
-  }
-
   // Group rename
   function startRename(idx: number) {
     editingGroupIdx = idx;
@@ -285,32 +420,31 @@
     loadLlmSettings();
 
     loading.set(true);
-    api.recent()
-      .then((events) => {
-        historyEvents.set(events.reverse());
-      })
-      .catch((e) => {
-        error.set(e?.message || 'Fetch failed');
-      })
-      .finally(() => {
-        loading.set(false);
-      });
+    refreshHistory().finally(() => { loading.set(false); });
 
     // Fetch cached summaries
     fetchSummaries();
 
     const refreshInterval = setInterval(() => {
       if ($activeView === 'history') {
-        api.recent()
-          .then((events) => { historyEvents.set(events.reverse()); })
-          .catch(() => {});
+        refreshHistory();
         fetchSummaries();
       }
     }, 30_000);
 
+    // Keep "today" current (rolls over at midnight)
+    const dateInterval = setInterval(() => {
+      const now = new Date();
+      if (!isSameDay(today, now)) {
+        today = now;
+        if (isSameDay(selectedDate, addDays(now, -1))) selectedDate = now;
+      }
+    }, 60_000);
+
     return () => {
       clearInterval(healthInterval);
       clearInterval(refreshInterval);
+      clearInterval(dateInterval);
     };
   });
 </script>
@@ -324,34 +458,31 @@
       <h1 class="heading">History</h1>
       <div class="bar">
         <div class="datenav">
-          <button class="datenav__btn" aria-label="Previous day">←</button>
-          <span class="datenav__label">Today, {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-          <button class="datenav__btn" aria-label="Next day">→</button>
+          <button class="datenav__btn" aria-label="Previous" on:click={goBack}>←</button>
+          <span class="datenav__label">{formatNavLabel()}</span>
+          <button class="datenav__btn" aria-label="Next" on:click={goForward} disabled={!canGoForward()}>→</button>
         </div>
         <div class="bar__right">
           <button class="btn btn--ghost" on:click={handleSummarize} disabled={$summarizing}>
             {$summarizing ? 'Organizing...' : '⚡ Organize'}
           </button>
           <div class="seg">
-            <button class="seg__opt active">Day</button>
-            <button class="seg__opt">Week</button>
-            <button class="seg__opt">Month</button>
+            <button class="seg__opt" class:active={viewMode === 'day'} on:click={() => setViewMode('day')}>Day</button>
+            <button class="seg__opt" class:active={viewMode === 'week'} on:click={() => setViewMode('week')}>Week</button>
+            <button class="seg__opt" class:active={viewMode === 'month'} on:click={() => setViewMode('month')}>Month</button>
           </div>
         </div>
       </div>
 
       {#if $error}
         <p class="error-msg">{$error}</p>
-      {:else if localGroups.length > 0}
-        <!-- GROUPED TIMELINE -->
+      {:else if showingToday && localGroups.length > 0}
+        <!-- GROUPED TIMELINE (summaries match today) -->
         <div class="timeline">
           {#each localGroups as group, idx}
             <div class="tl-group"
-              class:drag-over={dragOverIdx === idx}
-              on:dragover={(e) => onDragOver(e, idx)}
-              on:dragleave={onDragLeave}
-              on:drop={() => onDrop(idx)}
-              role="list"
+              class:drag-over={dragOverGroup === group.title}
+              data-group-title={group.title}
             >
               <div class="tl-gutter">
                 <span class="tl-gutter__time">{formatTime(group.events[0]?.ts ?? Date.now())}</span>
@@ -387,6 +518,7 @@
                   <div class="tl-items">
                     {#each group.events as event (event.id)}
                       <div class="tl-item"
+                        class:dragging-source={isDragging && dragState?.event.id === event.id}
                         on:click={() => openEvent(event)}
                         on:keydown={(e) => { if (e.key === 'Enter') openEvent(event); }}
                         role="button"
@@ -400,7 +532,7 @@
                         {#if event.duration_ms}
                           <span class="tl-item__dur">{formatDuration(event.duration_ms)}</span>
                         {/if}
-                        <span class="tl-item__handle" draggable="true" role="button" tabindex="-1" on:dragstart={(e) => onDragStart(e, event, idx)} title="Drag to another group">≡</span>
+                        <span class="tl-item__handle" class:active-drag={isDragging && dragState?.event.id === event.id} role="button" tabindex="-1" on:mousedown={(e) => startDrag(e, event, group.title)} on:click|stopPropagation title="Drag to another group">≡</span>
                       </div>
                     {/each}
                   </div>
@@ -409,10 +541,10 @@
             </div>
           {/each}
         </div>
-      {:else if $historyEvents.length > 0}
-        <!-- FLAT TIMELINE (no summaries yet) -->
+      {:else if filteredEvents.length > 0}
+        <!-- FLAT TIMELINE (no summaries, or viewing past date) -->
         <div class="timeline-flat">
-          {#each $historyEvents as event (event.id)}
+          {#each filteredEvents as event (event.id)}
             <div class="tl-row">
               <span class="tl-time">{formatTime(event.ts)}</span>
               <span class="tl-dot" style="background: {event.kind === 'app_focus' ? 'var(--brand-orange)' : event.kind === 'idle_start' ? '#aaa' : '#888'}"></span>
@@ -546,6 +678,13 @@
   <slot />
 </div>
 
+{#if isDragging && dragState}
+  <div class="drag-chip" style="left: {dragX + 12}px; top: {dragY - 14}px">
+    <span class="drag-chip__icon">↕</span>
+    <span class="drag-chip__label">{dragState.event.app ?? 'Event'}</span>
+  </div>
+{/if}
+
 <style>
   .app {
     display: flex;
@@ -601,6 +740,8 @@
   }
 
   .datenav__btn:hover { background: var(--row-hover); }
+  .datenav__btn:disabled { opacity: 0.3; cursor: default; }
+  .datenav__btn:disabled:hover { background: transparent; }
 
   .datenav__label { color: var(--ink); font-size: 14px; }
 
@@ -667,9 +808,10 @@
   }
 
   .tl-group.drag-over {
-    background: var(--row-hover);
-    outline: 2px dashed var(--brand-orange);
+    background: rgba(241, 106, 1, 0.08);
+    outline: 2px solid var(--brand-orange);
     outline-offset: -2px;
+    border-radius: var(--r-panel);
   }
 
   .tl-gutter {
@@ -823,6 +965,40 @@
   .tl-item__handle:hover {
     background: var(--paper-panel);
     color: var(--ink-soft);
+  }
+
+  .tl-item__handle.active-drag {
+    background: var(--brand-orange);
+    color: var(--on-orange);
+  }
+
+  /* Source event dims while being dragged */
+  .tl-item.dragging-source {
+    opacity: 0.35;
+    outline: 2px dashed var(--brand-orange);
+    outline-offset: -2px;
+  }
+
+  /* Floating chip that follows cursor */
+  .drag-chip {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: var(--brand-orange);
+    color: var(--on-orange);
+    border-radius: var(--r-pill);
+    font: 600 12px var(--font-ui);
+    box-shadow: 0 4px 16px rgba(241, 106, 1, 0.35);
+    white-space: nowrap;
+    transition: none;
+  }
+
+  .drag-chip__icon {
+    font-size: 11px;
   }
 
   /* ---- Flat timeline (fallback) ---- */
