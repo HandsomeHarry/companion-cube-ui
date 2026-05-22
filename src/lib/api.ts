@@ -40,12 +40,15 @@ export const api = {
   summaries: () =>
     request<SummariesResponse | null>('/summaries'),
 
-  summarize: (sinceMs?: number, untilMs?: number) =>
+  summarize: (sinceMs?: number, untilMs?: number, rangeKey?: string) =>
     request<SummariesResponse>('/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ since_ms: sinceMs, until_ms: untilMs }),
+      body: JSON.stringify({ since_ms: sinceMs, until_ms: untilMs, range_key: rangeKey }),
     }),
+
+  summariesForKey: (rangeKey: string) =>
+    request<SummariesResponse | null>(`/summaries?range_key=${encodeURIComponent(rangeKey)}`),
 
   // Group corrections
   groupCorrection: (data: { event_id: number; from_group: string; to_group: string; renamed_to?: string }) =>

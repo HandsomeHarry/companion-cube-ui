@@ -11,20 +11,26 @@ export const error = writable<string | null>(null);
 export const summaries = writable<SummariesResponse | null>(null);
 export const summarizing = writable(false);
 
-export async function fetchSummaries() {
+export async function fetchSummaries(rangeKey?: string) {
   try {
-    const data = await api.summaries();
-    summaries.set(data);
-    return data;
+    if (rangeKey) {
+      const data = await api.summariesForKey(rangeKey);
+      summaries.set(data);
+      return data;
+    } else {
+      const data = await api.summaries();
+      summaries.set(data);
+      return data;
+    }
   } catch {
     return null;
   }
 }
 
-export async function triggerSummarize(sinceMs?: number, untilMs?: number) {
+export async function triggerSummarize(sinceMs?: number, untilMs?: number, rangeKey?: string) {
   summarizing.set(true);
   try {
-    const data = await api.summarize(sinceMs, untilMs);
+    const data = await api.summarize(sinceMs, untilMs, rangeKey);
     summaries.set(data);
     return data;
   } catch (e: any) {

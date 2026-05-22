@@ -88,11 +88,16 @@
       });
     } catch {}
   }
-  let lastGeneratedAt: number = 0; // guard against overwriting user edits
+  let lastGeneratedAt: number = 0;
 
-  // Only show grouped view when viewing today's data (summaries are always "now")
-  let showingToday = true;
-  $: showingToday = isSameDay(selectedDate, today) && viewMode === 'day';
+  function dateCacheKey(sel: Date, mode: string): string {
+    if (mode === 'day') return `day:${sel.getFullYear()}-${String(sel.getMonth() + 1).padStart(2, '0')}-${String(sel.getDate()).padStart(2, '0')}`;
+    if (mode === 'week') {
+      const s = startOfWeek(sel);
+      return `week:${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, '0')}-${String(s.getDate()).padStart(2, '0')}`;
+    }
+    return `month:${sel.getFullYear()}-${String(sel.getMonth() + 1).padStart(2, '0')}`;
+  }
 
   // Filtered events for the selected date range (flat timeline fallback)
   $: filteredEvents = filterEventsForRange($historyEvents, selectedDate, viewMode);
@@ -256,12 +261,13 @@
 
   async function refreshHistory() {
     const hours = getRangeHours();
+    const rk = dateCacheKey(selectedDate, viewMode);
     try {
       const events = await api.activity(hours);
       historyEvents.set(events.reverse());
     } catch {}
     try {
-      await fetchSummaries();
+      await fetchSummaries(rk);
     } catch {}
   }
 
@@ -406,7 +412,6 @@
   }
 
   async function handleSummarize() {
-    // Compute the time range for the currently viewed period
     let sinceMs: number | undefined;
     let untilMs: number | undefined;
     if (viewMode === 'day') {
@@ -421,7 +426,8 @@
       sinceMs = startOfMonth(selectedDate).getTime();
       untilMs = endOfMonth(selectedDate).getTime();
     }
-    await triggerSummarize(sinceMs, untilMs);
+    const rk = dateCacheKey(selectedDate, viewMode);
+    await triggerSummarize(sinceMs, untilMs, rk);
   }
 
   function autofocus(el: HTMLInputElement) { el.focus(); }
@@ -447,13 +453,9 @@
     loading.set(true);
     refreshHistory().finally(() => { loading.set(false); });
 
-    // Fetch cached summaries
-    fetchSummaries();
-
     const refreshInterval = setInterval(() => {
       if ($activeView === 'history') {
         refreshHistory();
-        fetchSummaries();
       }
     }, 30_000);
 

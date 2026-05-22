@@ -60,6 +60,7 @@ pub fn init_databases(data_dir: &Path) -> Result<()> {
     init_events_db(data_dir)?;
     init_corrections_db(data_dir)?;
     init_eval_runs_db(data_dir)?;
+    init_summaries_db(data_dir)?;
     Ok(())
 }
 
@@ -506,6 +507,53 @@ pub fn list_eval_runs(conn: &Connection, limit: i64) -> Result<Vec<EvalRunRow>> 
     Ok(results)
 }
 
+// ---------------------------------------------------------------------------
+// Session summaries — persisted LLM grouping results keyed by date range
+// ---------------------------------------------------------------------------
+
+/// Open the summaries database for reading/writing.
+pub fn open_summaries_db(data_dir: &Path) -> Result<Connection> {
+    let conn = Connection::open(data_dir.join("summaries.sqlite"))?;
+    apply_pragmas(&conn)?;
+    Ok(conn)
+}
+
+/// Upsert a summary for a given range_key. Replaces any existing entry.
+pub fn upsert_summary(
+    conn: &Connection,
+    range_key: &str,
+    since_ms: i64,
+    until_ms: i64,
+    generated_at: i64,
+    groups_json: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO summaries (range_key, since_ms, until_ms, generated_at, groups_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(range_key) DO UPDATE SET
+           since_ms = excluded.since_ms,
+           until_ms = excluded.until_ms,
+           generated_at = excluded.generated_at,
+           groups_json = excluded.groups_json",
+        rusqlite::params![range_key, since_ms, until_ms, generated_at, groups_json],
+    )?;
+    Ok(())
+}
+
+/// Get a summary by range_key. Returns None if not found.
+pub fn get_summary(conn: &Connection, range_key: &str) -> Result<Option<(i64, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT generated_at, groups_json FROM summaries WHERE range_key = ?1",
+    )?;
+    let mut rows = stmt.query_map([range_key], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
 fn init_events_db(data_dir: &Path) -> Result<()> {
     let conn = Connection::open(data_dir.join("events.sqlite"))?;
     apply_pragmas(&conn)?;
@@ -603,6 +651,23 @@ fn init_eval_runs_db(data_dir: &Path) -> Result<()> {
             passed             INTEGER NOT NULL,
             rationale          TEXT
         );",
+    )?;
+    Ok(())
+}
+
+fn init_summaries_db(data_dir: &Path) -> Result<()> {
+    let conn = Connection::open(data_dir.join("summaries.sqlite"))?;
+    apply_pragmas(&conn)?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS summaries (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            range_key       TEXT NOT NULL UNIQUE,
+            since_ms        INTEGER NOT NULL,
+            until_ms        INTEGER NOT NULL,
+            generated_at    INTEGER NOT NULL,
+            groups_json     TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_summaries_range ON summaries(range_key);",
     )?;
     Ok(())
 }

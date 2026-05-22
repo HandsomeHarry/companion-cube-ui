@@ -806,7 +806,7 @@ struct LlmSessionGroup {
     distraction: bool,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SessionGroupWithEvents {
     pub title: String,
     pub distraction: bool,
@@ -975,12 +975,34 @@ pub async fn run_summarize(
     })
 }
 
-/// GET /summaries — return cached summaries.
+/// GET /summaries?range_key=day:2026-05-21 — return persisted summary for a date range.
 async fn get_summaries(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<SummariesQuery>,
 ) -> Result<Json<Option<SummariesResponse>>, ApiError> {
-    let cache = _state.cached_summaries.read().await;
-    Ok(Json(cache.clone()))
+    let range_key = match params.range_key {
+        Some(k) => k,
+        None => {
+            // Backward compat: try the in-memory cache
+            let cache = state.cached_summaries.read().await;
+            return Ok(Json(cache.clone()));
+        }
+    };
+
+    let conn = db::open_summaries_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+    match db::get_summary(&conn, &range_key).map_err(ApiError::internal)? {
+        Some((generated_at, groups_json)) => {
+            let groups: Vec<SessionGroupWithEvents> =
+                serde_json::from_str(&groups_json).unwrap_or_default();
+            Ok(Json(Some(SummariesResponse { generated_at, groups })))
+        }
+        None => Ok(Json(None)),
+    }
+}
+
+#[derive(Deserialize)]
+struct SummariesQuery {
+    range_key: Option<String>,
 }
 
 /// POST /summarize — trigger immediate summarization, update cache, return result.
@@ -991,6 +1013,15 @@ async fn run_summarize_handler(
     Json(body): Json<SummarizeRequest>,
 ) -> Result<Json<SummariesResponse>, ApiError> {
     let result = run_summarize(&state, body.since_ms, body.until_ms).await?;
+
+    // Persist to DB if range_key was provided
+    if let Some(rk) = body.range_key.as_deref() {
+        let conn = db::open_summaries_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+        let groups_json = serde_json::to_string(&result.groups).unwrap_or_default();
+        db::upsert_summary(&conn, rk, body.since_ms.unwrap_or(0), body.until_ms.unwrap_or(i64::MAX), result.generated_at, &groups_json)
+            .map_err(ApiError::internal)?;
+    }
+
     *state.cached_summaries.write().await = Some(result.clone());
     Ok(Json(result))
 }
@@ -999,6 +1030,7 @@ async fn run_summarize_handler(
 struct SummarizeRequest {
     since_ms: Option<i64>,
     until_ms: Option<i64>,
+    range_key: Option<String>,
 }
 
 // ---------- Group correction endpoints ----------
