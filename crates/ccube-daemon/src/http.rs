@@ -867,17 +867,26 @@ Make sure every field is separated by a comma. Output:
 }
 
 /// Core summarization logic — fetches events, calls LLM, parses response into groups.
-pub async fn run_summarize(state: &AppState) -> Result<SummariesResponse, ApiError> {
+pub async fn run_summarize(
+    state: &AppState,
+    since_ms: Option<i64>,
+    until_ms: Option<i64>,
+) -> Result<SummariesResponse, ApiError> {
     let conn =
         db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
     let now = chrono::Utc::now().timestamp_millis();
-    let since = now - SUMMARIZE_LOOKBACK_HOURS * 3_600_000;
+    let since = since_ms.unwrap_or(now - SUMMARIZE_LOOKBACK_HOURS * 3_600_000);
+    let until = until_ms.unwrap_or(i64::MAX);
     let all_events = db::query_recent_events(&conn, since).map_err(ApiError::internal)?;
 
-    // Filter to app_focus events only
+    // Filter to app_focus events within the time range
     let events: Vec<_> = all_events
         .into_iter()
-        .filter(|e| e.kind == "app_focus" && e.duration_ms.unwrap_or(0) > SUMMARIZE_MIN_DURATION_MS)
+        .filter(|e| {
+            e.kind == "app_focus"
+                && e.duration_ms.unwrap_or(0) > SUMMARIZE_MIN_DURATION_MS
+                && e.ts < until
+        })
         .take(SUMMARIZE_MAX_EVENTS)
         .collect();
 
@@ -975,12 +984,21 @@ async fn get_summaries(
 }
 
 /// POST /summarize — trigger immediate summarization, update cache, return result.
+/// Optional JSON body: `{ "since_ms": <epoch_ms>, "until_ms": <epoch_ms> }`
+/// If not provided, defaults to last SUMMARIZE_LOOKBACK_HOURS.
 async fn run_summarize_handler(
     State(state): State<Arc<AppState>>,
+    Json(body): Json<SummarizeRequest>,
 ) -> Result<Json<SummariesResponse>, ApiError> {
-    let result = run_summarize(&state).await?;
+    let result = run_summarize(&state, body.since_ms, body.until_ms).await?;
     *state.cached_summaries.write().await = Some(result.clone());
     Ok(Json(result))
+}
+
+#[derive(Deserialize, Default)]
+struct SummarizeRequest {
+    since_ms: Option<i64>,
+    until_ms: Option<i64>,
 }
 
 // ---------- Group correction endpoints ----------

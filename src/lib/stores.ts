@@ -21,10 +21,10 @@ export async function fetchSummaries() {
   }
 }
 
-export async function triggerSummarize() {
+export async function triggerSummarize(sinceMs?: number, untilMs?: number) {
   summarizing.set(true);
   try {
-    const data = await api.summarize();
+    const data = await api.summarize(sinceMs, untilMs);
     summaries.set(data);
     return data;
   } catch (e: any) {

@@ -94,13 +94,22 @@
   let showingToday = true;
   $: showingToday = isSameDay(selectedDate, today) && viewMode === 'day';
 
-  // Filtered events for the selected date range (flat timeline)
-  $: filteredEvents = filterEventsForRange($historyEvents);
+  // Filtered events for the selected date range (flat timeline fallback)
+  $: filteredEvents = filterEventsForRange($historyEvents, selectedDate, viewMode);
+  // Filtered groups: only keep groups with events in the selected range
+  $: displayGroups = localGroups
+    .map(g => ({ ...g, events: filterEventsForRange(g.events, selectedDate, viewMode) }))
+    .filter(g => g.events.length > 0)
+    .map(g => ({ ...g, total_duration_ms: g.events.reduce((s: number, e: EventRow) => s + (e.duration_ms ?? 0), 0) }));
 
   // Time range navigation
   let viewMode: 'day' | 'week' | 'month' = 'day';
   let today = new Date();
   let selectedDate = new Date();
+
+  // Reactive label — Svelte needs to see selectedDate read directly
+  $: navLabel = formatNavLabel(selectedDate, today, viewMode);
+  $: canGoFwd = canGoForward(selectedDate, today, viewMode);
 
   $: if ($summaries?.groups && $summaries.generated_at !== lastGeneratedAt) {
     lastGeneratedAt = $summaries.generated_at;
@@ -172,40 +181,41 @@
     return new Date(date.getFullYear(), date.getMonth() + 1, 1);
   }
 
-  function formatNavLabel(): string {
-    if (viewMode === 'day') {
-      if (isSameDay(selectedDate, today)) return `Today, ${selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-      const yesterday = addDays(today, -1);
-      if (isSameDay(selectedDate, yesterday)) return `Yesterday, ${selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-      return selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  function formatNavLabel(sel: Date, now: Date, mode: string): string {
+    if (mode === 'day') {
+      if (isSameDay(sel, now)) return 'Today';
+      const yesterday = addDays(now, -1);
+      if (isSameDay(sel, yesterday)) return 'Yesterday';
+      return sel.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
-    if (viewMode === 'week') {
-      const start = startOfWeek(selectedDate);
+    if (mode === 'week') {
+      const start = startOfWeek(sel);
       const end = addDays(start, 6);
       return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
     }
-    // month
-    return selectedDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    return sel.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   }
 
-  function canGoForward(): boolean {
-    if (viewMode === 'day') return !isSameDay(selectedDate, today);
-    if (viewMode === 'week') return endOfWeek(selectedDate) <= addDays(today, 1);
-    return selectedDate.getMonth() < today.getMonth() || selectedDate.getFullYear() < today.getFullYear();
+  function canGoForward(sel: Date, now: Date, mode: string): boolean {
+    if (mode === 'day') return !isSameDay(sel, now);
+    if (mode === 'week') return endOfWeek(sel) <= addDays(now, 1);
+    return sel.getMonth() < now.getMonth() || sel.getFullYear() < now.getFullYear();
   }
 
   function goBack() {
     if (viewMode === 'day') selectedDate = addDays(selectedDate, -1);
     else if (viewMode === 'week') selectedDate = addDays(selectedDate, -7);
     else { const d = new Date(selectedDate); d.setMonth(d.getMonth() - 1); selectedDate = d; }
+    selectedDate = selectedDate; // reactivity
     refreshHistory();
   }
 
   function goForward() {
-    if (!canGoForward()) return;
+    if (!canGoFwd) return;
     if (viewMode === 'day') selectedDate = addDays(selectedDate, 1);
     else if (viewMode === 'week') selectedDate = addDays(selectedDate, 7);
     else { const d = new Date(selectedDate); d.setMonth(d.getMonth() + 1); selectedDate = d; }
+    selectedDate = selectedDate; // reactivity
     refreshHistory();
   }
 
@@ -226,18 +236,18 @@
     return 720; // 30 days
   }
 
-  function filterEventsForRange(events: EventRow[]): EventRow[] {
+  function filterEventsForRange(events: EventRow[], sel: Date, mode: string): EventRow[] {
     let start: Date;
     let end: Date;
-    if (viewMode === 'day') {
-      start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
+    if (mode === 'day') {
+      start = new Date(sel); start.setHours(0, 0, 0, 0);
       end = addDays(start, 1);
-    } else if (viewMode === 'week') {
-      start = startOfWeek(selectedDate);
-      end = endOfWeek(selectedDate);
+    } else if (mode === 'week') {
+      start = startOfWeek(sel);
+      end = endOfWeek(sel);
     } else {
-      start = startOfMonth(selectedDate);
-      end = endOfMonth(selectedDate);
+      start = startOfMonth(sel);
+      end = endOfMonth(sel);
     }
     const startMs = start.getTime();
     const endMs = end.getTime();
@@ -396,7 +406,22 @@
   }
 
   async function handleSummarize() {
-    await triggerSummarize();
+    // Compute the time range for the currently viewed period
+    let sinceMs: number | undefined;
+    let untilMs: number | undefined;
+    if (viewMode === 'day') {
+      const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
+      const end = addDays(start, 1);
+      sinceMs = start.getTime();
+      untilMs = end.getTime();
+    } else if (viewMode === 'week') {
+      sinceMs = startOfWeek(selectedDate).getTime();
+      untilMs = endOfWeek(selectedDate).getTime();
+    } else {
+      sinceMs = startOfMonth(selectedDate).getTime();
+      untilMs = endOfMonth(selectedDate).getTime();
+    }
+    await triggerSummarize(sinceMs, untilMs);
   }
 
   function autofocus(el: HTMLInputElement) { el.focus(); }
@@ -459,8 +484,8 @@
       <div class="bar">
         <div class="datenav">
           <button class="datenav__btn" aria-label="Previous" on:click={goBack}>←</button>
-          <span class="datenav__label">{formatNavLabel()}</span>
-          <button class="datenav__btn" aria-label="Next" on:click={goForward} disabled={!canGoForward()}>→</button>
+          <span class="datenav__label">{navLabel}</span>
+          <button class="datenav__btn" aria-label="Next" on:click={goForward} disabled={!canGoFwd}>→</button>
         </div>
         <div class="bar__right">
           <button class="btn btn--ghost" on:click={handleSummarize} disabled={$summarizing}>
@@ -476,10 +501,10 @@
 
       {#if $error}
         <p class="error-msg">{$error}</p>
-      {:else if showingToday && localGroups.length > 0}
-        <!-- GROUPED TIMELINE (summaries match today) -->
+      {:else if displayGroups.length > 0}
+        <!-- GROUPED TIMELINE -->
         <div class="timeline">
-          {#each localGroups as group, idx}
+          {#each displayGroups as group, idx}
             <div class="tl-group"
               class:drag-over={dragOverGroup === group.title}
               data-group-title={group.title}
@@ -724,18 +749,20 @@
   .datenav {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 0;
     font-size: 14px;
+    position: relative;
   }
 
   .datenav__btn {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     display: grid;
     place-items: center;
-    font-size: 14px;
+    font-size: 16px;
     color: var(--ink-soft);
+    flex-shrink: 0;
     transition: background var(--t-fast) var(--ease);
   }
 
@@ -743,7 +770,14 @@
   .datenav__btn:disabled { opacity: 0.3; cursor: default; }
   .datenav__btn:disabled:hover { background: transparent; }
 
-  .datenav__label { color: var(--ink); font-size: 14px; }
+  .datenav__label {
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 500;
+    min-width: 120px;
+    text-align: center;
+    user-select: none;
+  }
 
   .seg {
     display: inline-flex;

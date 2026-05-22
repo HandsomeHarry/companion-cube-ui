@@ -40,8 +40,12 @@ export const api = {
   summaries: () =>
     request<SummariesResponse | null>('/summaries'),
 
-  summarize: () =>
-    request<SummariesResponse>('/summarize', { method: 'POST' }),
+  summarize: (sinceMs?: number, untilMs?: number) =>
+    request<SummariesResponse>('/summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ since_ms: sinceMs, until_ms: untilMs }),
+    }),
 
   // Group corrections
   groupCorrection: (data: { event_id: number; from_group: string; to_group: string; renamed_to?: string }) =>

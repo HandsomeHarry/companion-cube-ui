@@ -178,7 +178,7 @@ async fn main() -> Result<()> {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    match http::run_summarize(&summarize_state).await {
+                    match http::run_summarize(&summarize_state, None, None).await {
                         Ok(result) => {
                             *summarize_state.cached_summaries.write().await = Some(result);
                             tracing::info!("auto-summarization complete");
