@@ -109,7 +109,8 @@
   $: displayGroups = localGroups
     .map(g => ({ ...g, events: filterEventsForRange(g.events, selectedDate, viewMode) }))
     .filter(g => g.events.length > 0)
-    .map(g => ({ ...g, total_duration_ms: g.events.reduce((s: number, e: EventRow) => s + (e.duration_ms ?? 0), 0) }));
+    .map(g => ({ ...g, total_duration_ms: g.events.reduce((s: number, e: EventRow) => s + (e.duration_ms ?? 0), 0) }))
+    .reverse();
 
   // Time range navigation
   let viewMode: 'day' | 'week' | 'month' = 'day';
