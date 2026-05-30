@@ -500,6 +500,7 @@ mod tests {
             duration_ms,
             mode: None,
             ocr_text: None,
+            vision_desc: None,
         }
     }
 
@@ -621,6 +622,7 @@ mod tests {
             duration_ms: None,
             mode: None,
             ocr_text: None,
+            vision_desc: None,
         }
     }
 
@@ -717,6 +719,7 @@ mod tests {
             duration_ms: None,
             mode: None,
             ocr_text: None,
+            vision_desc: None,
         }
     }
 
@@ -741,6 +744,7 @@ mod tests {
             duration_ms,
             mode: None,
             ocr_text: ocr_text.map(|s| s.to_string()),
+            vision_desc: None,
         }
     }
 

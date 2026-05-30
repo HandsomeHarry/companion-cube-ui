@@ -332,6 +332,7 @@ mod tests {
             duration_ms: dur_ms,
             mode: mode.map(|m| m.to_string()),
             ocr_text: None,
+            vision_desc: None,
         }
     }
 

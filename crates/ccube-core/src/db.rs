@@ -14,6 +14,7 @@ pub struct EventRow {
     pub duration_ms: Option<i64>,
     pub mode: Option<String>,
     pub ocr_text: Option<String>,
+    pub vision_desc: Option<String>,
 }
 
 /// A row from the decisions table (detector decisions persisted for correction reference).
@@ -210,11 +211,23 @@ pub fn update_event_ocr_and_mode(conn: &Connection, event_id: i64, ocr_text: &st
     Ok(())
 }
 
+/// Set the vision_desc on a previously inserted event (populated by vision model classification).
+pub fn update_event_vision(conn: &Connection, event_id: i64, vision_desc: &str) -> Result<()> {
+    let rows = conn.execute(
+        "UPDATE events SET vision_desc = ?1 WHERE id = ?2",
+        rusqlite::params![vision_desc, event_id],
+    )?;
+    if rows == 0 {
+        anyhow::bail!("event #{event_id} not found");
+    }
+    Ok(())
+}
+
 /// Query events with ts >= since_ts, ordered by ts ascending.
 /// Capped at 10,000 rows as a safety bound.
 pub fn query_recent_events(conn: &Connection, since_ts: i64) -> Result<Vec<EventRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text
+        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text, vision_desc
          FROM events WHERE ts >= ?1 ORDER BY ts ASC LIMIT 10000",
     )?;
 
@@ -228,6 +241,7 @@ pub fn query_recent_events(conn: &Connection, since_ts: i64) -> Result<Vec<Event
             duration_ms: row.get(5)?,
             mode: row.get(6)?,
             ocr_text: row.get(7)?,
+            vision_desc: row.get(8)?,
         })
     })?;
 
@@ -241,7 +255,7 @@ pub fn query_recent_events(conn: &Connection, since_ts: i64) -> Result<Vec<Event
 /// Return the most recent event of a given kind, or None.
 pub fn last_event_of_kind(conn: &Connection, kind: &str) -> Result<Option<EventRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text
+        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text, vision_desc
          FROM events WHERE kind = ?1 ORDER BY ts DESC LIMIT 1",
     )?;
     let mut rows = stmt.query_map([kind], |row| {
@@ -254,6 +268,7 @@ pub fn last_event_of_kind(conn: &Connection, kind: &str) -> Result<Option<EventR
             duration_ms: row.get(5)?,
             mode: row.get(6)?,
             ocr_text: row.get(7)?,
+            vision_desc: row.get(8)?,
         })
     })?;
     match rows.next() {
@@ -265,7 +280,7 @@ pub fn last_event_of_kind(conn: &Connection, kind: &str) -> Result<Option<EventR
 /// Return the most recent event regardless of kind, or None.
 pub fn last_event(conn: &Connection) -> Result<Option<EventRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text
+        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text, vision_desc
          FROM events ORDER BY ts DESC LIMIT 1",
     )?;
     let mut rows = stmt.query_map([], |row| {
@@ -278,6 +293,7 @@ pub fn last_event(conn: &Connection) -> Result<Option<EventRow>> {
             duration_ms: row.get(5)?,
             mode: row.get(6)?,
             ocr_text: row.get(7)?,
+            vision_desc: row.get(8)?,
         })
     })?;
     match rows.next() {
@@ -602,6 +618,8 @@ fn init_events_db(data_dir: &Path) -> Result<()> {
     conn.execute_batch(
         "ALTER TABLE events ADD COLUMN ocr_text TEXT;",
     ).ok(); // ok() — column already exists on fresh databases
+    // Migration: add vision_desc column (safe to run repeatedly)
+    let _ = conn.execute("ALTER TABLE events ADD COLUMN vision_desc TEXT", []);
     Ok(())
 }
 
