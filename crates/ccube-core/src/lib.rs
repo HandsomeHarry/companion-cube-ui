@@ -6,4 +6,5 @@ pub mod focus_mode;
 pub mod llm;
 pub mod memory;
 pub mod paths;
+pub mod rhythm;
 pub mod service;
