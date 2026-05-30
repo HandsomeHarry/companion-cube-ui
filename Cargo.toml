@@ -5,7 +5,6 @@ members = [
     "crates/ccube-daemon",
     "crates/ccube-cli",
 ]
-exclude = ["src-tauri"]
 resolver = "2"
 
 [workspace.package]
