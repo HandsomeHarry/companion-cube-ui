@@ -111,6 +111,10 @@
     .filter(g => g.events.length > 0)
     .map(g => ({ ...g, total_duration_ms: g.events.reduce((s: number, e: EventRow) => s + (e.duration_ms ?? 0), 0) }));
 
+  // Events not in any group — captured after last summarize
+  $: groupedEventIds = new Set(displayGroups.flatMap(g => g.events.map(e => e.id)));
+  $: ungroupedEvents = filteredEvents.filter(e => !groupedEventIds.has(e.id));
+
   // Time range navigation
   let viewMode: 'day' | 'week' | 'month' = 'day';
   let today = new Date();
@@ -568,6 +572,24 @@
             </div>
           {/each}
         </div>
+        <!-- UNGROUPED RECENT EVENTS (captured after last summarize) -->
+        {#if ungroupedEvents.length > 0}
+          <div class="timeline-flat" style="padding-top: 12px;">
+            {#each ungroupedEvents as event (event.id)}
+              <div class="tl-row">
+                <span class="tl-time">{formatTime(event.ts)}</span>
+                <span class="tl-dot" style="background: {event.kind === 'app_focus' ? 'var(--brand-orange)' : event.kind === 'idle_start' ? '#aaa' : '#888'}"></span>
+                <span class="tl-app">{event.app ?? event.kind}</span>
+                {#if event.title}
+                  <span class="tl-detail">– {event.title}</span>
+                {/if}
+                {#if event.duration_ms}
+                  <span class="tl-dur">{formatDuration(event.duration_ms)}</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
       {:else if filteredEvents.length > 0}
         <!-- FLAT TIMELINE (no summaries, or viewing past date) -->
         <div class="timeline-flat">
