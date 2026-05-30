@@ -109,8 +109,7 @@
   $: displayGroups = localGroups
     .map(g => ({ ...g, events: filterEventsForRange(g.events, selectedDate, viewMode) }))
     .filter(g => g.events.length > 0)
-    .map(g => ({ ...g, total_duration_ms: g.events.reduce((s: number, e: EventRow) => s + (e.duration_ms ?? 0), 0) }))
-    .reverse();
+    .map(g => ({ ...g, total_duration_ms: g.events.reduce((s: number, e: EventRow) => s + (e.duration_ms ?? 0), 0) }));
 
   // Time range navigation
   let viewMode: 'day' | 'week' | 'month' = 'day';
@@ -126,10 +125,9 @@
     localGroups = $summaries.groups.map(g => ({
       ...g,
       events: [...g.events],
-    }));
+    })).reverse();
     expandedGroups = localGroups.map((_, i) => i); // expand all by default
   }
-
   function toggleGroup(idx: number) {
     if (expandedGroups.includes(idx)) {
       expandedGroups = expandedGroups.filter(i => i !== idx);
