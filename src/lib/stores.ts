@@ -1,8 +1,8 @@
 import { writable } from 'svelte/store';
-import type { EventRow, VaultItem, SummariesResponse } from './types';
+import type { EventRow, VaultItem, SummariesResponse, RhythmReport } from './types';
 import { api } from './api';
 
-export const activeView = writable<'history' | 'vault' | 'settings'>('history');
+export const activeView = writable<'history' | 'vault' | 'rhythm' | 'settings'>('history');
 export const daemonOnline = writable(false);
 export const historyEvents = writable<EventRow[]>([]);
 export const vaultItems = writable<VaultItem[]>([]);
@@ -10,6 +10,18 @@ export const loading = writable(false);
 export const error = writable<string | null>(null);
 export const summaries = writable<SummariesResponse | null>(null);
 export const summarizing = writable(false);
+export const rhythmReport = writable<RhythmReport | null>(null);
+
+export async function fetchRhythm(days = 7) {
+  try {
+    const data = await api.rhythm(days);
+    rhythmReport.set(data);
+    return data;
+  } catch {
+    rhythmReport.set(null);
+    return null;
+  }
+}
 
 export async function fetchSummaries(rangeKey?: string) {
   try {

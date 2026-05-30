@@ -28,3 +28,35 @@ export interface SummariesResponse {
   generated_at: number;
   groups: SessionGroup[];
 }
+
+export interface FocusWindow {
+  hour_start: number;
+  hour_end: number;
+  total_focus_ms: number;
+  label: string;
+}
+
+export interface AppCluster {
+  apps: string[];
+  session_count: number;
+}
+
+export interface DriftOrigin {
+  app: string;
+  from_app: string;
+  count: number;
+}
+
+export interface HeatmapData {
+  cells: number[];
+  max_value: number;
+  day_labels: string[];
+  hour_labels: string[];
+}
+
+export interface RhythmReport {
+  focus_windows: FocusWindow[];
+  fingerprint: AppCluster[];
+  drift_origins: DriftOrigin[];
+  heatmap: HeatmapData;
+}

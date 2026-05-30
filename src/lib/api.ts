@@ -1,4 +1,4 @@
-import type { EventRow, SummariesResponse } from './types';
+import type { EventRow, SummariesResponse, RhythmReport } from './types';
 
 const BASE = '/api';
 
@@ -49,6 +49,10 @@ export const api = {
 
   summariesForKey: (rangeKey: string) =>
     request<SummariesResponse | null>(`/summaries?range_key=${encodeURIComponent(rangeKey)}`),
+
+  // Rhythm analytics
+  rhythm: (days?: number) =>
+    request<RhythmReport>(`/rhythm${days ? `?days=${days}` : ''}`),
 
   // Group corrections
   groupCorrection: (data: { event_id: number; from_group: string; to_group: string; renamed_to?: string }) =>
