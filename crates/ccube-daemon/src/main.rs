@@ -489,33 +489,51 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
     Ok(())
 }
 
-/// Capture a screenshot, run OCR, and store the resulting text against a
-/// completed event. Uses spawn_blocking because both capture_screenshot and
-/// OCR engine are synchronous (and Windows OCR internally creates its own
-/// tokio runtime, which cannot run inside an existing async context).
+/// Capture a screenshot, run OCR + vision classification, and store results
+/// against a completed event. Uses spawn_blocking because both capture_screenshot,
+/// OCR engine, and vision model inference are synchronous.
 async fn run_ocr_for_event(data_dir: &Path, event_id: i64) -> Result<()> {
     let data_dir = data_dir.to_path_buf();
-    let ocr_result = tokio::task::spawn_blocking(move || {
+    let (ocr_result, vision_result) = tokio::task::spawn_blocking(move || {
         let png = ccube_capture::capture_screenshot()
             .context("screenshot capture failed")?;
 
-        let engine = ccube_capture::ocr::create_engine()
-            .context("no OCR engine available on this platform")?;
+        // OCR via platform-native engine
+        let ocr_text = match ccube_capture::ocr::create_engine() {
+            Some(engine) => engine.extract_text(&png).unwrap_or_default(),
+            None => String::new(),
+        };
 
-        let text = engine.extract_text(&png)?;
-        Ok::<_, anyhow::Error>(text)
+        // Vision classification via Ollama (best-effort, non-blocking on failure)
+        let vision_desc = match llm::vision_classify(&png) {
+            Ok(desc) => {
+                tracing::info!(event_id, desc_len = desc.len(), "vision classified");
+                Some(desc)
+            }
+            Err(e) => {
+                tracing::debug!(event_id, error = %e, "vision classify skipped");
+                None
+            }
+        };
+
+        Ok::<_, anyhow::Error>((ocr_text, vision_desc))
     })
     .await
-    .context("OCR task panicked")??;
-
-    if ocr_result.is_empty() {
-        tracing::debug!(event_id, "OCR produced empty text");
-        return Ok(());
-    }
+    .context("OCR+vision task panicked")??;
 
     let conn = db::open_events_db(&data_dir)?;
-    db::update_event_ocr(&conn, event_id, &ocr_result)?;
 
-    tracing::info!(event_id, ocr_len = ocr_result.len(), "OCR stored for event");
+    // Store OCR text if non-empty
+    if !ocr_result.is_empty() {
+        db::update_event_ocr(&conn, event_id, &ocr_result)?;
+        tracing::info!(event_id, ocr_len = ocr_result.len(), "OCR stored for event");
+    }
+
+    // Store vision description if available
+    if let Some(ref desc) = vision_result {
+        db::update_event_vision(&conn, event_id, desc)?;
+        tracing::info!(event_id, desc_len = desc.len(), "vision stored for event");
+    }
+
     Ok(())
 }
