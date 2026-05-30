@@ -17,8 +17,8 @@
   .item {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
+    gap: 8px;
+    padding: 6px 10px;
     border-radius: 8px;
     cursor: pointer;
     transition: background var(--t-fast) var(--ease);

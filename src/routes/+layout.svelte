@@ -755,7 +755,7 @@
 
   .content {
     flex: 1;
-    padding: 30px;
+    padding: 36px 40px;
     overflow-y: auto;
     background: var(--paper);
   }
@@ -867,12 +867,12 @@
   .btn--primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* ---- Grouped timeline ---- */
-  .timeline { padding-top: 4px; }
+  .timeline { padding-top: 12px; }
 
   .tl-group {
     display: grid;
     grid-template-columns: 56px 1fr;
-    margin-bottom: 4px;
+    margin-bottom: 8px;
     border-radius: var(--r-panel);
     transition: background var(--t-fast) var(--ease);
   }
@@ -888,8 +888,8 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    min-width: 72px;
-    padding-right: 12px;
+    min-width: 64px;
+    padding-right: 16px;
     padding-top: 10px;
   }
 
@@ -919,7 +919,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 10px;
+    padding: 10px 12px;
     border-radius: var(--r-control);
     cursor: pointer;
     transition: background var(--t-fast) var(--ease);
@@ -982,7 +982,7 @@
   }
 
   .tl-items {
-    padding-left: 6px;
+    padding-left: 8px;
     animation: slideDown 200ms var(--ease);
   }
 
@@ -994,8 +994,8 @@
   .tl-item {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
+    gap: 8px;
+    padding: 6px 10px;
     border-radius: 6px;
     font-size: 14px;
     color: var(--ink);
@@ -1075,7 +1075,7 @@
   }
 
   /* ---- Flat timeline (fallback) ---- */
-  .timeline-flat { padding-top: 8px; }
+  .timeline-flat { padding-top: 12px; }
 
   .tl-row {
     display: flex;

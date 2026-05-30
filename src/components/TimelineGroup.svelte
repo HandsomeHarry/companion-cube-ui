@@ -32,8 +32,8 @@
 <style>
   .group {
     display: grid;
-    grid-template-columns: 64px 1fr;
-    margin-bottom: 22px;
+    grid-template-columns: 60px 1fr;
+    margin-bottom: 16px;
   }
 
   .group__time {

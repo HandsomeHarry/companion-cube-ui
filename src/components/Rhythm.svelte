@@ -98,16 +98,16 @@
   .rhythm {
     display: flex;
     flex-direction: column;
-    gap: 28px;
+    gap: 24px;
     padding-bottom: 40px;
-    max-width: 760px;
+    max-width: 680px;
   }
 
   .rhythm__heading {
     font-size: 15px;
     font-weight: 600;
     color: var(--ink);
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
 
   .rhythm__empty {
@@ -119,13 +119,13 @@
   .heatmap {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
     overflow-x: auto;
   }
 
   .heatmap__row {
     display: flex;
-    gap: 3px;
+    gap: 2px;
     align-items: center;
   }
 
@@ -147,8 +147,8 @@
   }
 
   .heatmap__cell {
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
     border-radius: 3px;
     transition: transform var(--t-fast) var(--ease);
@@ -169,7 +169,7 @@
     background: var(--card-white);
     border: 1px solid var(--divider);
     border-radius: var(--r-panel);
-    padding: 14px 18px;
+    padding: 12px 16px;
     min-width: 130px;
     box-shadow: var(--shadow-rest);
   }
@@ -181,7 +181,7 @@
   }
 
   .focus-card__value {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 700;
     color: var(--brand-orange-deep);
   }
@@ -199,7 +199,7 @@
   .list__item {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     font-size: 13px;
   }
 

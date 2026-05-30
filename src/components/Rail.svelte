@@ -82,13 +82,13 @@
 
 <style>
   .rail {
-    width: 56px;
+    width: 52px;
     min-height: 100%;
     background: var(--paper);
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 16px 0;
+    padding: 14px 0;
     border-right: 1px solid var(--divider);
     flex-shrink: 0;
   }
@@ -96,7 +96,7 @@
   .rail__top {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
   }
 
   .rail__bottom {
@@ -104,8 +104,8 @@
   }
 
   .rail__btn {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     border-radius: var(--r-panel);
     display: grid;
     place-items: center;
