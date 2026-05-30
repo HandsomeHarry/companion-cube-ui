@@ -40,7 +40,7 @@ pub struct AppState {
 
 /// Build the axum router with all endpoints.
 pub fn router(state: Arc<AppState>) -> Router {
-    Router::new()
+    let api = Router::new()
         .route("/health", get(health))
         .route("/activity", get(activity))
         .route("/briefing", get(get_briefing))
@@ -61,10 +61,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/config/llm", get(get_llm_config).put(set_llm_config))
         .route("/summaries", get(get_summaries))
         .route("/summarize", post(run_summarize_handler))
-        .layer(
-            CorsLayer::permissive()
-        )
-        .with_state(state)
+        .with_state(state);
+
+    Router::new()
+        .nest("/api", api)
+        .layer(CorsLayer::permissive())
 }
 
 // ---------- Response types ----------
