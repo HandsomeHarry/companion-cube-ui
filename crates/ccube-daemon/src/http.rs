@@ -66,6 +66,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/config/llm", get(get_llm_config).put(set_llm_config))
         .route("/summaries", get(get_summaries))
         .route("/summarize", post(run_summarize_handler))
+        .route("/rhythm", get(get_rhythm))
         .with_state(state);
 
     Router::new()
@@ -248,6 +249,25 @@ async fn activity(
     let rows = db::query_recent_events(&conn, since_ts).map_err(ApiError::internal)?;
 
     Ok(Json(rows))
+}
+
+#[derive(Deserialize)]
+struct RhythmQuery {
+    days: Option<u32>,
+}
+
+/// GET /api/rhythm?days=7 — focus analytics (windows, fingerprint, drift, heatmap)
+/// computed from recent activity events. `days` defaults to 7, clamped to 1..=30.
+async fn get_rhythm(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<RhythmQuery>,
+) -> Result<Json<ccube_core::rhythm::RhythmReport>, ApiError> {
+    let days = params.days.unwrap_or(7).clamp(1, 30);
+    let conn = db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let since_ts = now - (days as i64) * 24 * 3_600_000;
+    let events = db::query_recent_events(&conn, since_ts).map_err(ApiError::internal)?;
+    Ok(Json(ccube_core::rhythm::compute_rhythm(&events)))
 }
 
 async fn memory_profile(

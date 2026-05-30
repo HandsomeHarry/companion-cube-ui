@@ -69,10 +69,10 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboar
                 // Wake the CFRunLoop so the icon renders immediately rather than
                 // on the next event.
                 #[cfg(target_os = "macos")]
-                unsafe {
-                    use objc2_core_foundation::{CFRunLoopGetMain, CFRunLoopWakeUp};
-                    if let Some(rl) = CFRunLoopGetMain() {
-                        CFRunLoopWakeUp(&rl);
+                {
+                    use objc2_core_foundation::CFRunLoop;
+                    if let Some(rl) = CFRunLoop::main() {
+                        rl.wake_up();
                     }
                 }
             }

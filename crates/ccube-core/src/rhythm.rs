@@ -183,7 +183,7 @@ fn compute_fingerprint(events: &[EventRow]) -> Vec<AppCluster> {
     let mut window_start = focus[0].ts;
     let mut apps: Vec<String> = Vec::new();
 
-    let mut flush = |apps: &mut Vec<String>, counts: &mut HashMap<Vec<String>, u32>| {
+    let flush = |apps: &mut Vec<String>, counts: &mut HashMap<Vec<String>, u32>| {
         apps.sort();
         apps.dedup();
         if apps.len() >= 2 {
