@@ -295,6 +295,79 @@ fn strip_markdown_fences(s: &str) -> String {
     s.to_string()
 }
 
+/// Send a screenshot to a vision-capable Ollama model for activity classification.
+/// Returns the raw JSON string from the model (activity, category, is_distraction).
+/// Uses CCUBE_VISION_MODEL env var (default: "gemma4:e4b").
+pub fn vision_classify(png_bytes: &[u8]) -> Result<String, LlmError> {
+    use base64::Engine;
+    let img_b64 = base64::engine::general_purpose::STANDARD.encode(png_bytes);
+
+    let model = std::env::var("CCUBE_VISION_MODEL")
+        .unwrap_or_else(|_| "gemma4:e4b".to_string());
+
+    let base_url = std::env::var("CCUBE_LLM_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let base_clean = base_url.trim_end_matches('/').strip_suffix("/v1").unwrap_or(&base_url);
+    let url = format!("{}/api/chat", base_clean);
+
+    let token = std::env::var("CCUBE_LLM_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty());
+
+    let prompt = r#"Look at this screenshot. What is the user doing? Reply in exactly this JSON format:
+{"activity": "short description", "category": "coding|writing|browsing|communication|media|design|gaming|system|other", "is_distraction": true or false}
+
+Respond with ONLY the JSON object, no other text."#;
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": prompt,
+            "images": [img_b64]
+        }],
+        "stream": false,
+        "think": false,
+        "options": {
+            "num_predict": 100,
+            "temperature": 0.2
+        }
+    });
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_read(Duration::from_secs(30))
+        .timeout_write(Duration::from_secs(10))
+        .build();
+
+    let mut req = agent.post(&url);
+    if let Some(ref t) = token {
+        req = req.set("Authorization", &format!("Bearer {}", t));
+    }
+
+    let response = req
+        .send_json(body)
+        .map_err(|e| LlmError::Unreachable(format!("vision: {e}")))?;
+
+    let parsed: serde_json::Value = response
+        .into_json()
+        .map_err(|e| LlmError::BadResponse(format!("vision parse: {e}")))?;
+
+    let content = parsed
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let content = strip_markdown_fences(&content);
+
+    if content.trim().is_empty() {
+        return Err(LlmError::BadResponse("vision returned empty".into()));
+    }
+
+    Ok(content.trim().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
