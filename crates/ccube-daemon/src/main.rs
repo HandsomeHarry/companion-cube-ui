@@ -1,5 +1,6 @@
 pub mod http;
 mod scheduler;
+mod tray;
 
 use anyhow::{Context, Result};
 use ccube_capture::ActivityCapture;
@@ -18,26 +19,24 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use http::AppState;
+use tray::UserEvent;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Synchronous entry point. macOS requires the tray/event loop on the main
+/// thread, so all async work runs on a dedicated tokio runtime thread while the
+/// main thread owns the `tao` event loop (see `tray`).
+fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     // 1. Resolve paths and init databases
     let root = DataRoot::resolve()?;
     db::init_databases(&root.data_dir)?;
 
-    // 2. Setup logging: JSON to daemon.ndjson + optional stdout
+    // 2. Setup logging: JSON to daemon.ndjson + optional stdout.
+    // `_guard` must outlive the process; it is held in this never-returning fn.
     let file_appender = tracing_appender::rolling::never(&root.logs_dir, "daemon.ndjson");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-    let json_layer = tracing_subscriber::fmt::layer()
-        .json()
-        .with_writer(non_blocking);
-
+    let json_layer = tracing_subscriber::fmt::layer().json().with_writer(non_blocking);
     let filter = EnvFilter::try_from_env("CCUBE_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
-
-    // Add stdout layer if running in a terminal
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdout());
     let stdout_layer = if is_tty {
         Some(
@@ -48,7 +47,6 @@ async fn main() -> Result<()> {
     } else {
         None
     };
-
     tracing_subscriber::registry()
         .with(filter)
         .with(json_layer)
@@ -69,7 +67,7 @@ async fn main() -> Result<()> {
 
         let clean_shutdown = match (&last_start, &last_stop) {
             (Some(start), Some(stop)) => stop.ts >= start.ts,
-            (None, _) => true, // first ever run
+            (None, _) => true,        // first ever run
             (Some(_), None) => false, // started but never stopped
         };
 
@@ -82,8 +80,6 @@ async fn main() -> Result<()> {
             let mut fixed = 0u32;
             for e in &stale {
                 if e.duration_ms.is_none() && e.kind == "app_focus" {
-                    // Cap duration: from event start to the previous daemon_start
-                    // (best we can do — the daemon was alive at least until then).
                     let capped = (crash_ts - e.ts).max(0);
                     db::update_event_duration(&conn, e.id, capped)?;
                     fixed += 1;
@@ -154,7 +150,36 @@ async fn main() -> Result<()> {
         cached_summaries,
     });
 
-    // 9. Spawn capture loop
+    // 9. Build the main-thread event loop before spawning the runtime, so we can
+    //    hand a proxy to the tokio thread for the shutdown handshake.
+    let event_loop = tray::build_event_loop();
+    let proxy = event_loop.create_proxy();
+
+    // 10. Spawn the tokio runtime on a background thread. When it finishes its
+    //     graceful shutdown it signals the event loop to exit.
+    let rt_cancel = cancel.clone();
+    let rt_state = state.clone();
+    let _runtime_thread = std::thread::Builder::new()
+        .name("ccube-tokio".into())
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build tokio runtime");
+            rt.block_on(run_runtime(rt_state, rt_cancel));
+            let _ = proxy.send_event(UserEvent::Shutdown);
+        })
+        .context("failed to spawn tokio runtime thread")?;
+
+    // 11. Run the tray event loop on the main thread (never returns).
+    tray::run(event_loop, cancel)
+}
+
+/// Drive all async subsystems: capture loop, scheduler, summarize loop, and the
+/// HTTP server. Returns only after a graceful shutdown (so the caller can tell
+/// the tray event loop to exit the process).
+async fn run_runtime(state: Arc<AppState>, cancel: CancellationToken) {
+    // Capture loop
     let capture_cancel = cancel.clone();
     let capture_state = state.clone();
     let capture_handle = tokio::spawn(async move {
@@ -163,13 +188,10 @@ async fn main() -> Result<()> {
         }
     });
 
-    // 8. Spawn scheduler
-    let scheduler_cancel = cancel.clone();
-    let scheduler_state = state.clone();
-    let scheduler_handle =
-        tokio::spawn(scheduler::run_scheduler(scheduler_state, scheduler_cancel));
+    // Scheduler
+    let scheduler_handle = tokio::spawn(scheduler::run_scheduler(state.clone(), cancel.clone()));
 
-    // 8b. Spawn summarize scheduler (every 5 min)
+    // Summarize scheduler (every 5 min)
     let summarize_state = state.clone();
     let summarize_cancel = cancel.clone();
     let summarize_handle = tokio::spawn(async move {
@@ -193,13 +215,19 @@ async fn main() -> Result<()> {
         }
     });
 
-    // 9. Bind HTTP server
-    let listener = TcpListener::bind("127.0.0.1:7431").await?;
-    tracing::info!("HTTP server listening on 127.0.0.1:7431");
+    // Bind HTTP server
+    let listener = match TcpListener::bind("127.0.0.1:7431").await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to bind 127.0.0.1:7431 (port already in use?)");
+            cancel.cancel();
+            return;
+        }
+    };
+    tracing::info!("HTTP server listening on http://127.0.0.1:7431");
 
     let router = http::router(state.clone());
     let server_cancel = cancel.clone();
-
     let server_handle = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, router)
             .with_graceful_shutdown(async move {
@@ -211,7 +239,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    // 10. Wait for Ctrl-C to trigger shutdown
+    // Ctrl-C also triggers shutdown (when running attached to a terminal)
     let ctrl_cancel = cancel.clone();
     tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;
@@ -219,11 +247,11 @@ async fn main() -> Result<()> {
         ctrl_cancel.cancel();
     });
 
-    // Wait for cancellation, then wait for tasks with a 2-second timeout
+    // Wait for cancellation, then join tasks with a 2-second timeout.
     cancel.cancelled().await;
     tracing::info!("shutdown initiated, waiting for tasks...");
 
-    let shutdown_result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+    let shutdown_result = tokio::time::timeout(Duration::from_secs(2), async {
         let _ = capture_handle.await;
         let _ = scheduler_handle.await;
         let _ = summarize_handle.await;
@@ -235,18 +263,15 @@ async fn main() -> Result<()> {
         tracing::warn!("shutdown timed out after 2 seconds, exiting anyway");
     }
 
-    // 11. Cleanup — insert daemon_stop sentinel before removing PID
+    // Cleanup — insert daemon_stop sentinel before removing PID
     if let Ok(conn) = db::open_events_db(&state.data_root.data_dir) {
         let stop_ts = chrono::Utc::now().timestamp_millis();
         let _ = db::insert_event(&conn, stop_ts, "daemon_stop", None, None, None);
         tracing::info!("session fence: daemon_stop sentinel inserted");
     }
+    let pid_file = state.data_root.data_dir.join("daemon.pid");
     let _ = std::fs::remove_file(&pid_file);
     tracing::info!("ccube-daemon stopped");
-
-    // _guard dropped here, flushing any remaining log lines
-
-    Ok(())
 }
 
 /// Run the continuous capture loop, writing events to the database.
