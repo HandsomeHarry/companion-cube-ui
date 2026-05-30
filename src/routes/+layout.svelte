@@ -5,7 +5,7 @@
   import { api } from '$lib/api';
   import { onMount } from 'svelte';
   import type { SessionGroup, EventRow } from '$lib/types';
-  import { THEMES, getInitialTheme, applyTheme, nextTheme, type ThemeName } from '$lib/theme';
+  import { THEMES, getInitialTheme, applyTheme, type ThemeName } from '$lib/theme';
 
   // Settings state
   let daemonVersion = '';
