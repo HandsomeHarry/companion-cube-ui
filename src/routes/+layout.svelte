@@ -516,7 +516,7 @@
               data-group-title={group.title}
             >
               <div class="tl-gutter">
-                <span class="tl-gutter__time">{formatTime(group.events[0]?.ts ?? Date.now())}</span>
+                <span class="tl-gutter__time">{formatTime(group.events[group.events.length - 1]?.ts ?? Date.now())}</span>
                 <span class="tl-gutter__dot" class:distraction={group.distraction}></span>
               </div>
               <div class="tl-body">
