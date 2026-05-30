@@ -909,14 +909,23 @@ fn build_summarize_prompt(events: &[ccube_core::db::EventRow]) -> String {
             })
             .unwrap_or_default();
 
+        // Include vision description (screen understanding) when available
+        let vision = event
+            .vision_desc
+            .as_deref()
+            .filter(|d| !d.is_empty())
+            .map(|d| format!(" | Vision: {}", d))
+            .unwrap_or_default();
+
         lines.push(format!(
-            "{}. [{}] {} \u{2013} {} ({}){}",
+            "{}. [{}] {} \u{2013} {} ({}){}{}",
             i + 1,
             time,
             app,
             title,
             dur,
-            ocr
+            ocr,
+            vision
         ));
     }
 

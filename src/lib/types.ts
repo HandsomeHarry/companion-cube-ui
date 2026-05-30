@@ -7,6 +7,7 @@ export interface EventRow {
   duration_ms: number | null;
   mode: string | null;
   ocr_text: string | null;
+  vision_desc?: string;
 }
 
 export interface VaultItem {
