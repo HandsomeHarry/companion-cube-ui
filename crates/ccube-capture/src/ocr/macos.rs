@@ -19,6 +19,7 @@ impl OcrEngine for MacOcrEngine {
 }
 
 unsafe fn vision_ocr_inner(image_data: &[u8]) -> Result<String> {
+    unsafe {
     // 1. Create NSData from PNG bytes
     let nsdata: *mut Object = msg_send![
         class!(NSData),
@@ -117,10 +118,12 @@ unsafe fn vision_ocr_inner(image_data: &[u8]) -> Result<String> {
     }
 
     Ok(text_parts.join("\n"))
+    }
 }
 
 /// Convert an NSString* to a Rust String.
 unsafe fn nsstring_to_string(nsstring: *mut Object) -> Option<String> {
+    unsafe {
     if nsstring.is_null() {
         return None;
     }
@@ -144,6 +147,7 @@ unsafe fn nsstring_to_string(nsstring: *mut Object) -> Option<String> {
     }
     buf.truncate(used_length);
     Some(String::from_utf8_lossy(&buf).to_string())
+    }
 }
 
 /// RAII wrapper for NSAutoreleasePool.
@@ -153,12 +157,14 @@ struct AutoreleasePool {
 
 impl AutoreleasePool {
     unsafe fn new() -> Self {
+        unsafe {
         let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
         Self { pool }
+        }
     }
 
     unsafe fn drain(&self) {
-        let _: () = msg_send![self.pool, drain];
+        unsafe { let _: () = msg_send![self.pool, drain]; }
     }
 }
 

@@ -7,7 +7,6 @@ use crate::{ActivityCapture, ActivityEvent};
 use anyhow::Result;
 use block::ConcreteBlock;
 use ccube_core::briefing::ActivitySnapshot;
-use core_foundation::base::TCFType;
 use core_foundation::date::CFAbsoluteTimeGetCurrent;
 use core_foundation::runloop::{
     kCFRunLoopDefaultMode, CFRunLoop, CFRunLoopTimer, CFRunLoopTimerCallBack, CFRunLoopTimerContext,
@@ -352,7 +351,7 @@ unsafe extern "C" {
 }
 
 unsafe fn get_idle_seconds() -> f64 {
-    CGEventSourceSecondsSinceLastEventType(0, 0)
+    unsafe { CGEventSourceSecondsSinceLastEventType(0, 0) }
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +359,7 @@ unsafe fn get_idle_seconds() -> f64 {
 // ---------------------------------------------------------------------------
 
 unsafe fn ax_is_process_trusted() -> bool {
-    AXIsProcessTrusted()
+    unsafe { AXIsProcessTrusted() }
 }
 
 unsafe fn current_frontmost_app() -> Option<String> {
@@ -393,104 +392,116 @@ unsafe fn get_frontmost_pid() -> Option<i32> {
 }
 
 unsafe fn get_frontmost_window_title() -> Option<String> {
-    let pid = get_frontmost_pid()?;
-    let ax_app = ax_create_application(pid);
-    if ax_app.is_null() {
-        return None;
-    }
-    let win = ax_copy_attribute(ax_app, "AXFocusedWindow");
-    if win.is_null() {
+    unsafe {
+        let pid = get_frontmost_pid()?;
+        let ax_app = ax_create_application(pid);
+        if ax_app.is_null() {
+            return None;
+        }
+        let win = ax_copy_attribute(ax_app, "AXFocusedWindow");
+        if win.is_null() {
+            cf_release(ax_app);
+            return None;
+        }
+        let title = ax_copy_string_attribute(win, "AXTitle");
+        cf_release(win);
         cf_release(ax_app);
-        return None;
+        title
     }
-    let title = ax_copy_string_attribute(win, "AXTitle");
-    cf_release(win);
-    cf_release(ax_app);
-    title
 }
 
 unsafe fn get_browser_url() -> Option<String> {
-    let pid = get_frontmost_pid()?;
-    let ax_app = ax_create_application(pid);
-    if ax_app.is_null() {
-        return None;
-    }
-    let win = ax_copy_attribute(ax_app, "AXFocusedWindow");
-    if win.is_null() {
+    unsafe {
+        let pid = get_frontmost_pid()?;
+        let ax_app = ax_create_application(pid);
+        if ax_app.is_null() {
+            return None;
+        }
+        let win = ax_copy_attribute(ax_app, "AXFocusedWindow");
+        if win.is_null() {
+            cf_release(ax_app);
+            return None;
+        }
+        let url = search_ax_for_url(win, 5);
+        cf_release(win);
         cf_release(ax_app);
-        return None;
+        url
     }
-    let url = search_ax_for_url(win, 5);
-    cf_release(win);
-    cf_release(ax_app);
-    url
 }
 
 unsafe fn ax_create_application(pid: i32) -> *mut Object {
-    AXUIElementCreateApplication(pid)
+    unsafe { AXUIElementCreateApplication(pid) }
 }
 
 unsafe fn ax_copy_attribute(element: *mut Object, attr: &str) -> *mut Object {
-    let attr_ns = ns_string(attr);
-    let mut value: *mut Object = ptr::null_mut();
-    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
-    if err != 0 { ptr::null_mut() } else { value }
+    unsafe {
+        let attr_ns = ns_string(attr);
+        let mut value: *mut Object = ptr::null_mut();
+        let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
+        if err != 0 { ptr::null_mut() } else { value }
+    }
 }
 
 unsafe fn ax_copy_string_attribute(element: *mut Object, attr: &str) -> Option<String> {
-    let attr_ns = ns_string(attr);
-    let mut value: *mut Object = ptr::null_mut();
-    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
-    if err != 0 || value.is_null() {
-        return None;
+    unsafe {
+        let attr_ns = ns_string(attr);
+        let mut value: *mut Object = ptr::null_mut();
+        let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
+        if err != 0 || value.is_null() {
+            return None;
+        }
+        let result = nsstring_to_string(value);
+        CFRelease(value as *mut c_void);
+        result
     }
-    let result = nsstring_to_string(value);
-    CFRelease(value as *mut c_void);
-    result
 }
 
 unsafe fn ax_copy_attribute_array(element: *mut Object, attr: &str) -> Vec<*mut Object> {
-    let attr_ns = ns_string(attr);
-    let mut value: *mut Object = ptr::null_mut();
-    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
-    if err != 0 || value.is_null() {
-        return Vec::new();
-    }
-    let count: usize = msg_send![value, count];
-    let mut items = Vec::with_capacity(count.min(50));
-    for i in 0..count.min(50) {
-        let item: *mut Object = msg_send![value, objectAtIndex: i];
-        if !item.is_null() {
-            items.push(item);
+    unsafe {
+        let attr_ns = ns_string(attr);
+        let mut value: *mut Object = ptr::null_mut();
+        let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
+        if err != 0 || value.is_null() {
+            return Vec::new();
         }
+        let count: usize = msg_send![value, count];
+        let mut items = Vec::with_capacity(count.min(50));
+        for i in 0..count.min(50) {
+            let item: *mut Object = msg_send![value, objectAtIndex: i];
+            if !item.is_null() {
+                items.push(item);
+            }
+        }
+        CFRelease(value as *mut c_void);
+        items
     }
-    CFRelease(value as *mut c_void);
-    items
 }
 
 unsafe fn search_ax_for_url(element: *mut Object, max_depth: usize) -> Option<String> {
-    if max_depth == 0 {
-        return None;
-    }
-    let children = ax_copy_attribute_array(element, "AXChildren");
-    for child in &children {
-        let role = ax_copy_string_attribute(*child, "AXRole").unwrap_or_default();
-        let desc = ax_copy_string_attribute(*child, "AXDescription").unwrap_or_default();
-        let rl = role.to_lowercase();
-        let dl = desc.to_lowercase();
+    unsafe {
+        if max_depth == 0 {
+            return None;
+        }
+        let children = ax_copy_attribute_array(element, "AXChildren");
+        for child in &children {
+            let role = ax_copy_string_attribute(*child, "AXRole").unwrap_or_default();
+            let desc = ax_copy_string_attribute(*child, "AXDescription").unwrap_or_default();
+            let rl = role.to_lowercase();
+            let dl = desc.to_lowercase();
 
-        if rl == "axtextfield" || rl == "axcombobox" || dl.contains("address") || dl.contains("url bar") {
-            if let Some(value) = ax_copy_string_attribute(*child, "AXValue") {
-                if value.starts_with("http") || value.contains("://") {
-                    return Some(value);
+            if rl == "axtextfield" || rl == "axcombobox" || dl.contains("address") || dl.contains("url bar") {
+                if let Some(value) = ax_copy_string_attribute(*child, "AXValue") {
+                    if value.starts_with("http") || value.contains("://") {
+                        return Some(value);
+                    }
                 }
             }
+            if let Some(url) = search_ax_for_url(*child, max_depth - 1) {
+                return Some(url);
+            }
         }
-        if let Some(url) = search_ax_for_url(*child, max_depth - 1) {
-            return Some(url);
-        }
+        None
     }
-    None
 }
 
 // ---------------------------------------------------------------------------
@@ -499,42 +510,46 @@ unsafe fn search_ax_for_url(element: *mut Object, max_depth: usize) -> Option<St
 
 /// Create an NSString from a Rust &str.
 unsafe fn ns_string(s: &str) -> *mut Object {
-    let ns: *mut Object = msg_send![class!(NSString), alloc];
-    let bytes = s.as_ptr() as *const c_void;
-    let len = s.len();
-    msg_send![ns, initWithBytes: bytes length: len encoding: 4usize] // NSUTF8StringEncoding = 4
+    unsafe {
+        let ns: *mut Object = msg_send![class!(NSString), alloc];
+        let bytes = s.as_ptr() as *const c_void;
+        let len = s.len();
+        msg_send![ns, initWithBytes: bytes length: len encoding: 4usize] // NSUTF8StringEncoding = 4
+    }
 }
 
 /// Convert an NSString* to a Rust String.
 unsafe fn nsstring_to_string(obj: *mut Object) -> Option<String> {
-    if obj.is_null() {
-        return None;
+    unsafe {
+        if obj.is_null() {
+            return None;
+        }
+        let len: usize = msg_send![obj, lengthOfBytesUsingEncoding: 4usize];
+        if len == 0 {
+            return Some(String::new());
+        }
+        let mut buf = vec![0u8; len];
+        let mut used: usize = 0;
+        let ok: bool = msg_send![
+            obj,
+            getBytes: buf.as_mut_ptr() as *mut c_void
+            maxLength: len
+            encoding: 4usize
+            usedLength: &mut used as *mut _
+            lossyConversion: true
+        ];
+        if !ok { return None; }
+        buf.truncate(used);
+        Some(String::from_utf8_lossy(&buf).to_string())
     }
-    let len: usize = msg_send![obj, lengthOfBytesUsingEncoding: 4usize];
-    if len == 0 {
-        return Some(String::new());
-    }
-    let mut buf = vec![0u8; len];
-    let mut used: usize = 0;
-    let ok: bool = msg_send![
-        obj,
-        getBytes: buf.as_mut_ptr() as *mut c_void
-        maxLength: len
-        encoding: 4usize
-        usedLength: &mut used as *mut _
-        lossyConversion: true
-    ];
-    if !ok { return None; }
-    buf.truncate(used);
-    Some(String::from_utf8_lossy(&buf).to_string())
 }
 
 /// Create an NSAutoreleasePool.
 unsafe fn ns_autorelease_pool_new() -> *mut Object {
-    msg_send![class!(NSAutoreleasePool), new]
+    unsafe { msg_send![class!(NSAutoreleasePool), new] }
 }
 
-/// Accessibility framework functions — AXUIElement is a CF type, not an ObjC class.
+// Accessibility framework functions — AXUIElement is a CF type, not an ObjC class.
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXIsProcessTrusted() -> bool;

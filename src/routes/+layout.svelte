@@ -854,6 +854,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-end;
+    min-width: 72px;
     padding-right: 12px;
     padding-top: 10px;
   }
@@ -861,6 +862,7 @@
   .tl-gutter__time {
     color: var(--ink-soft);
     font-size: 12px;
+    white-space: nowrap;
   }
 
   .tl-gutter__dot {
@@ -996,6 +998,7 @@
     border-radius: 4px;
     transition: background var(--t-fast) var(--ease);
     user-select: none;
+    margin-left: auto;
   }
 
   .tl-item__handle:hover {
@@ -1055,7 +1058,7 @@
   .tl-time {
     color: var(--ink-soft);
     font-size: 13px;
-    min-width: 50px;
+    min-width: 72px;
     text-align: right;
   }
 
