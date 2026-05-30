@@ -897,23 +897,39 @@ fn build_summarize_prompt(events: &[ccube_core::db::EventRow]) -> String {
             .duration_ms
             .map(|d| format!("{}s", d / 1000))
             .unwrap_or_else(|| "?s".to_string());
+
+        // Include OCR text (screen content) when available — truncated to avoid prompt bloat
+        let ocr = event
+            .ocr_text
+            .as_deref()
+            .filter(|t| !t.is_empty())
+            .map(|t| {
+                let truncated = &t[..t.floor_char_boundary(120)];
+                format!(" | Screen: {}", truncated)
+            })
+            .unwrap_or_default();
+
         lines.push(format!(
-            "{}. [{}] {} – {} ({})",
+            "{}. [{}] {} \u{2013} {} ({}){}",
             i + 1,
             time,
             app,
             title,
-            dur
+            dur,
+            ocr
         ));
     }
 
     format!(
-        r#"Group these computer activity events into sessions.
+        r#"Group these computer activity events into meaningful sessions.
 
 Rules:
 - Group consecutive events that belong to the same activity
-- Give each group a short 2-3 word title
-- Mark entertainment/social media as distraction: true, work/focus as distraction: false
+- Give each group a descriptive title (5-8 words) that captures what the user was ACTUALLY DOING
+  Good examples: "Watching cat videos on YouTube", "Debugging Rust compile errors", "Browsing GitHub repos mindlessly", "Researching travel plans for Tokyo", "Working on history project essay"
+  Bad examples: "Web Browsing", "Social Chat", "Coding", "Communication" (too generic)
+- Use the app name, window title, AND screen content (when available) to infer the specific activity
+- Mark entertainment/social media as distraction: true, focused/productive work as distraction: false
 - Include ALL event numbers, do not skip any
 - Events are listed newest first
 - Keep response SHORT
@@ -922,7 +938,7 @@ Events:
 {}
 
 Respond with ONLY a JSON object. Use this exact format for each group:
-{{"title":"Name","event_ids":[1,2],"distraction":false}}
+{{"title":"Descriptive Activity Title","event_ids":[1,2],"distraction":false}}
 
 Make sure every field is separated by a comma. Output:
 {{"groups":[...]}}"#,
