@@ -23,6 +23,7 @@ export interface SessionGroup {
   distraction: boolean;
   events: EventRow[];
   total_duration_ms: number;
+  event_descriptions: Record<number, string>;
 }
 
 export interface SummariesResponse {

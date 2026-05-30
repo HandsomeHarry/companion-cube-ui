@@ -557,9 +557,7 @@
                       >
                         <span class="tl-item__bullet">·</span>
                         <span class="tl-item__app">{event.app ?? event.kind}</span>
-                        {#if event.title}
-                          <span class="tl-item__title">– {event.title}</span>
-                        {/if}
+                        <span class="tl-item__title">– {group.event_descriptions?.[event.id] || event.vision_desc || event.title || ''}</span>
                         {#if event.duration_ms}
                           <span class="tl-item__dur">{formatDuration(event.duration_ms)}</span>
                         {/if}
@@ -580,9 +578,7 @@
                 <span class="tl-time">{formatTime(event.ts)}</span>
                 <span class="tl-dot" style="background: {event.kind === 'app_focus' ? 'var(--brand-orange)' : event.kind === 'idle_start' ? '#aaa' : '#888'}"></span>
                 <span class="tl-app">{event.app ?? event.kind}</span>
-                {#if event.title}
-                  <span class="tl-detail">– {event.title}</span>
-                {/if}
+                <span class="tl-detail">– {event.vision_desc || event.title || ''}</span>
                 {#if event.duration_ms}
                   <span class="tl-dur">{formatDuration(event.duration_ms)}</span>
                 {/if}
@@ -598,9 +594,7 @@
               <span class="tl-time">{formatTime(event.ts)}</span>
               <span class="tl-dot" style="background: {event.kind === 'app_focus' ? 'var(--brand-orange)' : event.kind === 'idle_start' ? '#aaa' : '#888'}"></span>
               <span class="tl-app">{event.app ?? event.kind}</span>
-              {#if event.title}
-                <span class="tl-detail">– {event.title}</span>
-              {/if}
+              <span class="tl-detail">– {event.vision_desc || event.title || ''}</span>
               {#if event.duration_ms}
                 <span class="tl-dur">{formatDuration(event.duration_ms)}</span>
               {/if}
