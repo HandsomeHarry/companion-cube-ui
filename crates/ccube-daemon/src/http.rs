@@ -13,6 +13,11 @@ use std::sync::Arc;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
+use include_dir::{Dir, include_dir};
+
+/// Frontend build output, embedded into the binary at compile time.
+/// Requires `npm run build` to have produced `build/` before `cargo build`.
+static UI_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../build");
 
 /// Shared application state for all HTTP handlers.
 pub struct AppState {
@@ -65,7 +70,45 @@ pub fn router(state: Arc<AppState>) -> Router {
 
     Router::new()
         .nest("/api", api)
+        .fallback(serve_frontend)
         .layer(CorsLayer::permissive())
+}
+
+/// Serve embedded frontend files. Falls back to index.html for SPA client-side routes.
+async fn serve_frontend(req: axum::extract::Request) -> axum::response::Response {
+    let raw = req.uri().path();
+    let path = if raw == "/" { "index.html" } else { raw.trim_start_matches('/') };
+
+    if let Some(file) = UI_DIR.get_file(path) {
+        return file_response(path, file.contents());
+    }
+    // SPA fallback: unknown non-API route -> index.html
+    if let Some(index) = UI_DIR.get_file("index.html") {
+        return file_response("index.html", index.contents());
+    }
+    (axum::http::StatusCode::NOT_FOUND, "UI not embedded").into_response()
+}
+
+fn file_response(path: &str, bytes: &'static [u8]) -> axum::response::Response {
+    let content_type = match path.rsplit('.').next() {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "application/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("ico") => "image/x-icon",
+        Some("webp") => "image/webp",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("wasm") => "application/wasm",
+        _ => "application/octet-stream",
+    };
+    (
+        [(axum::http::header::CONTENT_TYPE, content_type)],
+        bytes,
+    )
+        .into_response()
 }
 
 // ---------- Response types ----------
