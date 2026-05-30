@@ -1,8 +1,14 @@
 <script lang="ts">
   import { activeView } from '$lib/stores';
+  import { applyTheme, nextTheme, type ThemeName } from '$lib/theme';
 
   type View = 'history' | 'vault' | 'settings';
   export let onViewChange: (view: View) => void;
+
+  function cycleTheme() {
+    const current = (document.documentElement.dataset.theme ?? 'paper') as ThemeName;
+    applyTheme(nextTheme(current));
+  }
 </script>
 
 <nav class="rail">
@@ -36,6 +42,18 @@
   </div>
 
   <div class="rail__bottom">
+    <button
+      class="rail__btn"
+      on:click={cycleTheme}
+      aria-label="Switch theme"
+      title="Switch theme"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
+
     <button
       class="rail__btn"
       class:active={$activeView === 'settings'}

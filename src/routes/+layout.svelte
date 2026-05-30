@@ -5,6 +5,7 @@
   import { api } from '$lib/api';
   import { onMount } from 'svelte';
   import type { SessionGroup, EventRow } from '$lib/types';
+  import { THEMES, getInitialTheme, applyTheme, nextTheme, type ThemeName } from '$lib/theme';
 
   // Settings state
   let daemonVersion = '';
@@ -18,6 +19,7 @@
   let saveMsg = '';
   let daemonStarting = false;
   let daemonMsg = '';
+  let theme: ThemeName = 'paper';
 
   // History state — local mutable copies of groups for drag/rename
   let localGroups: SessionGroup[] = [];
@@ -421,7 +423,15 @@
     $activeView = view;
   }
 
+  function setTheme(t: ThemeName) {
+    theme = t;
+    applyTheme(t);
+  }
+
   onMount(() => {
+    theme = getInitialTheme();
+    applyTheme(theme);
+
     const checkHealth = async () => {
       try {
         await api.health();
@@ -588,6 +598,28 @@
     {:else if $activeView === 'settings'}
       <!-- SETTINGS VIEW -->
       <h1 class="heading">Settings</h1>
+
+      <!-- Appearance -->
+      <div class="card appearance">
+        <h2 class="card__title">Appearance</h2>
+        <div class="swatches">
+          {#each THEMES as t}
+            <button
+              class="swatch"
+              class:active={theme === t.name}
+              aria-pressed={theme === t.name}
+              aria-label={t.label}
+              title={t.label}
+              on:click={() => setTheme(t.name)}
+            >
+              <span class="swatch__chip" style="background: {t.bg};">
+                <span class="swatch__dot" style="background: {t.accent};"></span>
+              </span>
+              <span class="swatch__label">{t.label}</span>
+            </button>
+          {/each}
+        </div>
+      </div>
 
       <!-- App Info -->
       <div class="card">
@@ -1134,6 +1166,57 @@
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 12px;
+  }
+
+  .appearance .swatches {
+    display: flex;
+    gap: 12px;
+  }
+
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    padding: 0;
+    background: none;
+  }
+
+  .swatch__chip {
+    width: 100%;
+    height: 48px;
+    border-radius: var(--r-panel);
+    border: 1px solid var(--divider);
+    display: grid;
+    place-items: center;
+    transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  }
+
+  .swatch__dot {
+    width: 16px;
+    height: 16px;
+    border-radius: var(--r-pill);
+  }
+
+  .swatch__label {
+    font-size: 13px;
+    color: var(--ink-soft);
+    transition: color var(--t-fast) var(--ease);
+  }
+
+  .swatch:hover .swatch__chip {
+    border-color: var(--brand-orange);
+  }
+
+  .swatch.active .swatch__chip {
+    border-color: var(--brand-orange);
+    box-shadow: 0 0 0 2px var(--brand-orange);
+  }
+
+  .swatch.active .swatch__label {
+    color: var(--ink);
+    font-weight: 600;
   }
 
   .field { margin-bottom: 14px; }
