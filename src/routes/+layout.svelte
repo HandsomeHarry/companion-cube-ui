@@ -1,7 +1,9 @@
 <script lang="ts">
   import '../app.css';
   import Rail from '$components/Rail.svelte';
+  import Rhythm from '$components/Rhythm.svelte';
   import { activeView, daemonOnline, historyEvents, loading, error, llmConfig, fetchLlmConfig, saveLlmConfig, summaries, summarizing, fetchSummaries, triggerSummarize } from '$lib/stores';
+  import { rhythmReport, fetchRhythm } from '$lib/stores';
   import { api } from '$lib/api';
   import { onMount } from 'svelte';
   import type { SessionGroup, EventRow } from '$lib/types';
@@ -419,7 +421,7 @@
 
   function autofocus(el: HTMLInputElement) { el.focus(); }
 
-  function handleViewChange(view: 'history' | 'vault' | 'settings') {
+  function handleViewChange(view: 'history' | 'vault' | 'rhythm' | 'settings') {
     $activeView = view;
   }
 
@@ -447,10 +449,14 @@
 
     loading.set(true);
     refreshHistory().finally(() => { loading.set(false); });
+    fetchRhythm(7);
 
     const refreshInterval = setInterval(() => {
       if ($activeView === 'history') {
         refreshHistory();
+      }
+      if ($activeView === 'rhythm') {
+        fetchRhythm(7);
       }
     }, 30_000);
 
@@ -593,6 +599,17 @@
         <p style="color:var(--ink-soft)">🔌 Daemon is not running.</p>
       {:else}
         <p style="color:var(--ink-soft)">🏦 Your vault is empty. Save distractions here when nudged, or add ideas manually.</p>
+      {/if}
+
+    {:else if $activeView === 'rhythm'}
+      <!-- RHYTHM VIEW -->
+      <h1 class="heading">Rhythm</h1>
+      {#if !$daemonOnline}
+        <p style="color:var(--ink-soft)">🔌 Daemon is not running.</p>
+      {:else if $rhythmReport}
+        <Rhythm report={$rhythmReport} />
+      {:else}
+        <p class="hint">Loading rhythm…</p>
       {/if}
 
     {:else if $activeView === 'settings'}
