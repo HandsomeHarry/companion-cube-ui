@@ -197,6 +197,19 @@ pub fn update_event_ocr(conn: &Connection, event_id: i64, ocr_text: &str) -> Res
     Ok(())
 }
 
+/// Set both ocr_text and mode on a previously inserted event.
+/// Used when OCR text arrives after the initial insert and enables re-inferred mode.
+pub fn update_event_ocr_and_mode(conn: &Connection, event_id: i64, ocr_text: &str, mode: &str) -> Result<()> {
+    let rows = conn.execute(
+        "UPDATE events SET ocr_text = ?1, mode = ?2 WHERE id = ?3",
+        rusqlite::params![ocr_text, mode, event_id],
+    )?;
+    if rows == 0 {
+        anyhow::bail!("event #{event_id} not found");
+    }
+    Ok(())
+}
+
 /// Query events with ts >= since_ts, ordered by ts ascending.
 /// Capped at 10,000 rows as a safety bound.
 pub fn query_recent_events(conn: &Connection, since_ts: i64) -> Result<Vec<EventRow>> {

@@ -302,4 +302,49 @@ mod tests {
         );
         assert_eq!(focus_mode_to_str(&FocusMode::Unspecified), "Unspecified");
     }
+
+    #[test]
+    fn test_ocr_detects_coding() {
+        let mode = infer_focus_mode(
+            "Brave Browser",
+            Some("some random page"),
+            None,
+            Some("fn main() { println!(\"hello\"); }"),
+        );
+        assert!(matches!(mode, FocusMode::Coding));
+    }
+
+    #[test]
+    fn test_ocr_detects_writing() {
+        let mode = infer_focus_mode(
+            "Brave Browser",
+            Some("some page"),
+            None,
+            Some("Chapter 3: The Conclusion\nBibliography\nReferences"),
+        );
+        assert!(matches!(mode, FocusMode::Writing));
+    }
+
+    #[test]
+    fn test_ocr_no_match_stays_unspecified() {
+        let mode = infer_focus_mode(
+            "Brave Browser",
+            Some("YouTube"),
+            None,
+            Some("Cat Videos Best Compilation 2026 funny cats"),
+        );
+        assert!(matches!(mode, FocusMode::Unspecified));
+    }
+
+    #[test]
+    fn test_ocr_overrides_after_app_title_miss() {
+        // Generic app + title but screen shows code
+        let mode = infer_focus_mode(
+            "Brave Browser",
+            Some("Untitled"),
+            None,
+            Some("cargo test\nrunning 143 tests\ntest result: ok"),
+        );
+        assert!(matches!(mode, FocusMode::Coding));
+    }
 }

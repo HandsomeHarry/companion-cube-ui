@@ -295,6 +295,8 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
 
     let conn = db::open_events_db(&state.data_root.data_dir)?;
     let mut last_event: HashMap<String, (i64, i64)> = HashMap::new();
+    // Track context of the last app_focus event for OCR-based re-inference
+    let mut last_focus_context: Option<(i64, String, Option<String>, Option<String>)> = None;
     let mut event_count: u64 = 0;
 
     loop {
@@ -325,8 +327,20 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                         ("idle_end", *ts, None, None, None)
                     }
                     ccube_capture::ActivityEvent::OcrReady { text, ts: _ } => {
-                        // Write OCR text to the most recent app_focus event
-                        if let Some(&(prev_id, _)) = last_event.get("app_focus") {
+                        // Write OCR text + re-inferred mode to the most recent app_focus event
+                        if let Some((prev_id, ref app, ref title, ref url)) = last_focus_context {
+                            let m = focus_mode::infer_focus_mode(
+                                app,
+                                title.as_deref(),
+                                url.as_deref(),
+                                Some(text),
+                            );
+                            let mode_str = focus_mode::focus_mode_to_str(&m);
+                            if let Err(e) = db::update_event_ocr_and_mode(&conn, prev_id, text, mode_str) {
+                                tracing::warn!(error = %e, "failed to update OCR text + mode");
+                            }
+                        } else if let Some(&(prev_id, _)) = last_event.get("app_focus") {
+                            // Fallback: no app context stored, just write OCR text
                             if let Err(e) = db::update_event_ocr(&conn, prev_id, text) {
                                 tracing::warn!(error = %e, "failed to update OCR text");
                             }
@@ -361,12 +375,18 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                             }
                         }
                         last_event.insert(kind.to_string(), (row_id, ts));
-                        event_count += 1;
 
-                        // Signal detector on app focus changes
+                        // Store app context for OCR-based mode re-inference
                         if kind == "app_focus" {
+                            last_focus_context = Some((
+                                row_id,
+                                app.unwrap_or("").to_string(),
+                                title.map(String::from),
+                                url.map(String::from),
+                            ));
                             state.detector_trigger.notify_one();
                         }
+                        event_count += 1;
 
                         tracing::debug!(
                             kind,
@@ -407,7 +427,13 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                             ("idle_end", *ts, None, None, None)
                         }
                         ccube_capture::ActivityEvent::OcrReady { text, ts: _ } => {
-                            if let Some(&(prev_id, _)) = last_event.get("app_focus") {
+                            if let Some((prev_id, ref app, ref title, ref url)) = last_focus_context {
+                                let m = focus_mode::infer_focus_mode(
+                                    app, title.as_deref(), url.as_deref(), Some(text),
+                                );
+                                let mode_str = focus_mode::focus_mode_to_str(&m);
+                                let _ = db::update_event_ocr_and_mode(&conn, prev_id, text, mode_str);
+                            } else if let Some(&(prev_id, _)) = last_event.get("app_focus") {
                                 let _ = db::update_event_ocr(&conn, prev_id, text);
                             }
                             continue;
@@ -429,6 +455,14 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                             }
                         }
                         last_event.insert(kind.to_string(), (row_id, ts));
+                        if kind == "app_focus" {
+                            last_focus_context = Some((
+                                row_id,
+                                app.unwrap_or("").to_string(),
+                                title.map(String::from),
+                                url.map(String::from),
+                            ));
+                        }
                     } else {
                         tracing::warn!("failed to persist event during drain");
                     }
