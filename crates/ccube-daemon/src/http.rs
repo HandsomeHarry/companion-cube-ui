@@ -871,7 +871,7 @@ struct LlmSessionGroup {
     /// Per-event context descriptions, keyed by event number (1-based).
     /// Maps event_id -> short description of what the user was doing.
     #[serde(default)]
-    descriptions: std::collections::HashMap<i64, String>,
+    descriptions: std::collections::HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -881,7 +881,7 @@ pub struct SessionGroupWithEvents {
     pub events: Vec<ccube_core::db::EventRow>,
     pub total_duration_ms: i64,
     #[serde(default)]
-    pub event_descriptions: std::collections::HashMap<i64, String>,
+    pub event_descriptions: std::collections::HashMap<String, String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -1069,12 +1069,24 @@ pub async fn run_summarize(
 
         let total_duration: i64 = group_events.iter().filter_map(|e| e.duration_ms).sum();
 
+        // Remap descriptions: LLM uses 1-based event numbers, frontend needs DB row IDs
+        let mut mapped_descriptions = std::collections::HashMap::new();
+        for &llm_id in &group.event_ids {
+            if llm_id < 1 { continue; }
+            let idx = (llm_id - 1) as usize;
+            if idx < events.len() {
+                if let Some(desc) = group.descriptions.get(&llm_id.to_string()).or_else(|| group.descriptions.get(&format!("{}", llm_id))) {
+                    mapped_descriptions.insert(events[idx].id.to_string(), desc.clone());
+                }
+            }
+        }
+
         groups.push(SessionGroupWithEvents {
             title: group.title.clone(),
             distraction: group.distraction,
             events: group_events,
             total_duration_ms: total_duration,
-            event_descriptions: group.descriptions.clone(),
+            event_descriptions: mapped_descriptions,
         });
     }
 
