@@ -868,6 +868,10 @@ struct LlmSessionGroup {
     title: String,
     event_ids: Vec<i64>,
     distraction: bool,
+    /// Per-event context descriptions, keyed by event number (1-based).
+    /// Maps event_id -> short description of what the user was doing.
+    #[serde(default)]
+    descriptions: std::collections::HashMap<i64, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -876,6 +880,8 @@ pub struct SessionGroupWithEvents {
     pub distraction: bool,
     pub events: Vec<ccube_core::db::EventRow>,
     pub total_duration_ms: i64,
+    #[serde(default)]
+    pub event_descriptions: std::collections::HashMap<i64, String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -885,7 +891,7 @@ pub struct SummariesResponse {
 }
 
 /// Build the LLM prompt for summarizing events into sessions.
-fn build_summarize_prompt(events: &[ccube_core::db::EventRow]) -> String {
+fn build_summarize_prompt(events: &[ccube_core::db::EventRow], corrections: &[String]) -> String {
     let mut lines = Vec::new();
     for (i, event) in events.iter().enumerate() {
         let time = chrono::DateTime::from_timestamp_millis(event.ts)
@@ -898,7 +904,7 @@ fn build_summarize_prompt(events: &[ccube_core::db::EventRow]) -> String {
             .map(|d| format!("{}s", d / 1000))
             .unwrap_or_else(|| "?s".to_string());
 
-        // Include OCR text (screen content) when available — truncated to avoid prompt bloat
+        // Include OCR text (screen content) when available
         let ocr = event
             .ocr_text
             .as_deref()
@@ -929,28 +935,42 @@ fn build_summarize_prompt(events: &[ccube_core::db::EventRow]) -> String {
         ));
     }
 
+    let corrections_section = if corrections.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nRecent user corrections (learn from these):\n{}\n",
+            corrections.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n")
+        )
+    };
+
     format!(
-        r#"Group these computer activity events into meaningful sessions.
+        r#"Analyze these computer activity events and group them into activities.
+
+For each group, provide:
+1. A descriptive title (5-10 words) that captures the overall ACTIVITY the user was engaged in
+   Good: "Working on history project about World War 2", "Chilling with friends on Discord"
+   Bad: "Web Browsing", "Social Chat", "Coding"
+2. For EACH event, a short description (3-8 words) of what the user was specifically doing
+   Use the app name, window title, screen content, AND vision data to infer specifics
+   Good: "watching WWII documentary on YouTube", "writing history essay in Word"
+   Bad: "using Brave Browser", "in Microsoft Word"
+3. Whether the activity is a distraction (entertainment/aimless browsing) or focused work
 
 Rules:
 - Group consecutive events that belong to the same activity
-- Give each group a descriptive title (5-8 words) that captures what the user was ACTUALLY DOING
-  Good examples: "Watching cat videos on YouTube", "Debugging Rust compile errors", "Browsing GitHub repos mindlessly", "Researching travel plans for Tokyo", "Working on history project essay"
-  Bad examples: "Web Browsing", "Social Chat", "Coding", "Communication" (too generic)
-- Use the app name, window title, AND screen content (when available) to infer the specific activity
-- Mark entertainment/social media as distraction: true, focused/productive work as distraction: false
+- Use ALL available context: app name, window title, OCR screen text, and vision description
 - Include ALL event numbers, do not skip any
 - Events are listed newest first
-- Keep response SHORT
-
-Events:
+{}Events:
 {}
 
-Respond with ONLY a JSON object. Use this exact format for each group:
-{{"title":"Descriptive Activity Title","event_ids":[1,2],"distraction":false}}
+Respond with ONLY a JSON object. Use this exact format:
+{{"groups":[{{"title":"Activity Title","event_ids":[1,2],"distraction":false,"descriptions":{{"1":"watching WWII documentary","2":"writing history essay"}}}}]}}
 
 Make sure every field is separated by a comma. Output:
 {{"groups":[...]}}"#,
+        corrections_section,
         lines.join("\n")
     )
 }
@@ -987,7 +1007,24 @@ pub async fn run_summarize(
     }
 
     // Build prompt and call LLM
-    let prompt = build_summarize_prompt(&events);
+    // Load recent corrections for prompt context (best-effort)
+    let corrections: Vec<String> = db::open_corrections_db(&state.data_root.data_dir)
+        .ok()
+        .and_then(|conn| {
+            db::list_corrections(&conn, 5, false).ok()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|c| {
+            if c.user_verdict.starts_with("group_reassign") {
+                Some(c.user_verdict)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let prompt = build_summarize_prompt(&events, &corrections);
     let response = state
         .llm
         .complete(&prompt, "", SUMMARIZE_MAX_TOKENS, SUMMARIZE_TEMPERATURE)
@@ -1037,6 +1074,7 @@ pub async fn run_summarize(
             distraction: group.distraction,
             events: group_events,
             total_duration_ms: total_duration,
+            event_descriptions: group.descriptions.clone(),
         });
     }
 
@@ -1055,6 +1093,7 @@ pub async fn run_summarize(
             distraction: false,
             events: uncategorized,
             total_duration_ms: total_duration,
+            event_descriptions: std::collections::HashMap::new(),
         });
     }
 
