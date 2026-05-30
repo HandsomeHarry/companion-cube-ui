@@ -150,6 +150,14 @@ fn main() -> Result<()> {
         cached_summaries,
     });
 
+    // Resolve the loopback port (override with CCUBE_PORT; consistent with the
+    // other CCUBE_* env conventions). The tray opens this URL in the browser.
+    let port: u16 = std::env::var("CCUBE_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(7431);
+    let dashboard_url = format!("http://localhost:{port}");
+
     // 9. Build the main-thread event loop before spawning the runtime, so we can
     //    hand a proxy to the tokio thread for the shutdown handshake.
     let event_loop = tray::build_event_loop();
@@ -166,19 +174,19 @@ fn main() -> Result<()> {
                 .enable_all()
                 .build()
                 .expect("failed to build tokio runtime");
-            rt.block_on(run_runtime(rt_state, rt_cancel));
+            rt.block_on(run_runtime(rt_state, rt_cancel, port));
             let _ = proxy.send_event(UserEvent::Shutdown);
         })
         .context("failed to spawn tokio runtime thread")?;
 
     // 11. Run the tray event loop on the main thread (never returns).
-    tray::run(event_loop, cancel)
+    tray::run(event_loop, cancel, dashboard_url)
 }
 
 /// Drive all async subsystems: capture loop, scheduler, summarize loop, and the
 /// HTTP server. Returns only after a graceful shutdown (so the caller can tell
 /// the tray event loop to exit the process).
-async fn run_runtime(state: Arc<AppState>, cancel: CancellationToken) {
+async fn run_runtime(state: Arc<AppState>, cancel: CancellationToken, port: u16) {
     // Capture loop
     let capture_cancel = cancel.clone();
     let capture_state = state.clone();
@@ -216,15 +224,16 @@ async fn run_runtime(state: Arc<AppState>, cancel: CancellationToken) {
     });
 
     // Bind HTTP server
-    let listener = match TcpListener::bind("127.0.0.1:7431").await {
+    let addr = format!("127.0.0.1:{port}");
+    let listener = match TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(e) => {
-            tracing::error!(error = %e, "failed to bind 127.0.0.1:7431 (port already in use?)");
+            tracing::error!(error = %e, addr = %addr, "failed to bind (port already in use?)");
             cancel.cancel();
             return;
         }
     };
-    tracing::info!("HTTP server listening on http://127.0.0.1:7431");
+    tracing::info!(addr = %addr, "HTTP server listening");
 
     let router = http::router(state.clone());
     let server_cancel = cancel.clone();

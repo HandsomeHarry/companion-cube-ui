@@ -15,9 +15,6 @@ use tokio_util::sync::CancellationToken;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
 
-/// The dashboard URL the tray opens in the default browser.
-const DASHBOARD_URL: &str = "http://localhost:7431";
-
 /// Events delivered to the main-thread event loop.
 pub enum UserEvent {
     /// A tray menu item was activated.
@@ -34,7 +31,7 @@ pub fn build_event_loop() -> EventLoop<UserEvent> {
 
 /// Run the tray event loop on the main thread. Never returns; exits the process
 /// once the tokio runtime signals [`UserEvent::Shutdown`].
-pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken) -> ! {
+pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboard_url: String) -> ! {
     // Forward global menu events into the typed event loop so it wakes up.
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |e| {
@@ -81,7 +78,7 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken) -> ! {
             }
             Event::UserEvent(UserEvent::Menu(e)) => {
                 if e.id == open_id {
-                    open_dashboard();
+                    open_dashboard(&dashboard_url);
                 } else if e.id == quit_id {
                     tracing::info!("tray: Quit selected, initiating shutdown");
                     cancel.cancel();
@@ -98,16 +95,16 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken) -> ! {
 }
 
 /// Open the dashboard in the user's default browser.
-fn open_dashboard() {
+fn open_dashboard(url: &str) {
     #[cfg(target_os = "macos")]
-    let (program, args): (&str, &[&str]) = ("open", &[DASHBOARD_URL]);
+    let (program, args): (&str, &[&str]) = ("open", &[url]);
     #[cfg(target_os = "linux")]
-    let (program, args): (&str, &[&str]) = ("xdg-open", &[DASHBOARD_URL]);
+    let (program, args): (&str, &[&str]) = ("xdg-open", &[url]);
     #[cfg(target_os = "windows")]
-    let (program, args): (&str, &[&str]) = ("cmd", &["/C", "start", "", DASHBOARD_URL]);
+    let (program, args): (&str, &[&str]) = ("cmd", &["/C", "start", "", url]);
 
     match std::process::Command::new(program).args(args).spawn() {
-        Ok(_) => tracing::info!(url = DASHBOARD_URL, "opened dashboard in browser"),
+        Ok(_) => tracing::info!(url, "opened dashboard in browser"),
         Err(e) => tracing::warn!(error = %e, "failed to open dashboard in browser"),
     }
 }
