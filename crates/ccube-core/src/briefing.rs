@@ -254,6 +254,7 @@ pub fn build(
         &right_now.app,
         right_now.title.as_deref(),
         None,
+        None,
     ));
 
     // 6. Assemble

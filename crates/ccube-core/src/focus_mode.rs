@@ -2,9 +2,9 @@ use crate::briefing::FocusMode;
 
 /// Tier-1 focus mode inference via keyword matching.
 ///
-/// Checks app name, window title, and URL to determine what the user
+/// Checks app name, window title, URL, and OCR screen text to determine what the user
 /// is likely doing. Returns `Unspecified` when no pattern matches.
-pub fn infer_focus_mode(app: &str, title: Option<&str>, url: Option<&str>) -> FocusMode {
+pub fn infer_focus_mode(app: &str, title: Option<&str>, url: Option<&str>, ocr_text: Option<&str>) -> FocusMode {
     let app_lower = app.to_lowercase();
 
     // URL-based inference (highest priority when available)
@@ -122,6 +122,29 @@ pub fn infer_focus_mode(app: &str, title: Option<&str>, url: Option<&str>) -> Fo
         }
     }
 
+    // OCR screen text — use visible content to refine when app/title/url didn't match
+    if let Some(ocr) = ocr_text {
+        let ocr_lower = ocr.to_lowercase();
+
+        // Code indicators in screen content
+        let code_signals = ["fn ", "impl ", "pub fn", "async fn", "import ", "from ",
+            "class ", "def ", "return ", "const ", "let mut", "-> ", "=> ",
+            "cargo build", "cargo test", "npm run", "git commit", "git push",
+            "error[", "warning[", "debug!", "traceback",
+            "terminal", "console", "println!", "console.log"];
+        if code_signals.iter().any(|s| ocr_lower.contains(s)) {
+            return FocusMode::Coding;
+        }
+
+        // Writing / document indicators
+        let writing_signals = ["chapter", "paragraph", "bibliography", "abstract",
+            "introduction", "conclusion", "references", "table of contents",
+            "word count", "page count", "heading 1", "heading 2"];
+        if writing_signals.iter().any(|s| ocr_lower.contains(s)) {
+            return FocusMode::Writing;
+        }
+    }
+
     FocusMode::Unspecified
 }
 
@@ -171,37 +194,37 @@ mod tests {
 
     #[test]
     fn test_vscode_with_rust_file() {
-        let mode = infer_focus_mode("Code.exe", Some("main.rs - ccube"), None);
+        let mode = infer_focus_mode("Code.exe", Some("main.rs - ccube"), None, None);
         assert!(matches!(mode, FocusMode::Coding));
     }
 
     #[test]
     fn test_vscode_with_markdown() {
-        let mode = infer_focus_mode("Code.exe", Some("README.md - project"), None);
+        let mode = infer_focus_mode("Code.exe", Some("README.md - project"), None, None);
         assert!(matches!(mode, FocusMode::Writing));
     }
 
     #[test]
     fn test_vscode_no_title() {
-        let mode = infer_focus_mode("Code.exe", None, None);
+        let mode = infer_focus_mode("Code.exe", None, None, None);
         assert!(matches!(mode, FocusMode::Coding));
     }
 
     #[test]
     fn test_intellij() {
-        let mode = infer_focus_mode("idea64.exe", Some("Main.java"), None);
+        let mode = infer_focus_mode("idea64.exe", Some("Main.java"), None, None);
         assert!(matches!(mode, FocusMode::Coding));
     }
 
     #[test]
     fn test_davinci_resolve() {
-        let mode = infer_focus_mode("Resolve.exe", Some("Project 1"), None);
+        let mode = infer_focus_mode("Resolve.exe", Some("Project 1"), None, None);
         assert!(matches!(mode, FocusMode::VideoProduction));
     }
 
     #[test]
     fn test_word() {
-        let mode = infer_focus_mode("WINWORD.EXE", Some("Document1.docx"), None);
+        let mode = infer_focus_mode("WINWORD.EXE", Some("Document1.docx"), None, None);
         assert!(matches!(mode, FocusMode::Writing));
     }
 
@@ -211,6 +234,7 @@ mod tests {
             "chrome.exe",
             Some("rust-lang/rust - GitHub"),
             Some("https://github.com/rust-lang/rust"),
+            None,
         );
         assert!(matches!(mode, FocusMode::Coding));
     }
@@ -221,25 +245,26 @@ mod tests {
             "chrome.exe",
             Some("My Document - Google Docs"),
             Some("https://docs.google.com/document/d/abc"),
+            None,
         );
         assert!(matches!(mode, FocusMode::Writing));
     }
 
     #[test]
     fn test_chrome_generic() {
-        let mode = infer_focus_mode("chrome.exe", Some("YouTube"), None);
+        let mode = infer_focus_mode("chrome.exe", Some("YouTube"), None, None);
         assert!(matches!(mode, FocusMode::Unspecified));
     }
 
     #[test]
     fn test_unknown_app() {
-        let mode = infer_focus_mode("calculator.exe", Some("Calculator"), None);
+        let mode = infer_focus_mode("calculator.exe", Some("Calculator"), None, None);
         assert!(matches!(mode, FocusMode::Unspecified));
     }
 
     #[test]
     fn test_terminal() {
-        let mode = infer_focus_mode("WindowsTerminal.exe", Some("pwsh"), None);
+        let mode = infer_focus_mode("WindowsTerminal.exe", Some("pwsh"), None, None);
         assert!(matches!(mode, FocusMode::Coding));
     }
 
@@ -261,7 +286,7 @@ mod tests {
     #[test]
     fn test_obs_not_browser() {
         // OBS should be video production, not browser
-        let mode = infer_focus_mode("obs64.exe", Some("Scene 1"), None);
+        let mode = infer_focus_mode("obs64.exe", Some("Scene 1"), None, None);
         assert!(matches!(mode, FocusMode::VideoProduction));
         // jobscheduler should NOT match "obs"
         assert!(!is_browser("jobscheduler.exe"));

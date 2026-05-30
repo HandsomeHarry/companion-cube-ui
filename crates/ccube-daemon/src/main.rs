@@ -336,7 +336,7 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                 };
 
                 let mode = if kind == "app_focus" {
-                    let m = focus_mode::infer_focus_mode(app.unwrap_or(""), title, url);
+                    let m = focus_mode::infer_focus_mode(app.unwrap_or(""), title, url, None);
                     Some(focus_mode::focus_mode_to_str(&m))
                 } else {
                     None
@@ -414,7 +414,7 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                         }
                     };
                     let mode = if kind == "app_focus" {
-                        let m = focus_mode::infer_focus_mode(app.unwrap_or(""), title, url);
+                        let m = focus_mode::infer_focus_mode(app.unwrap_or(""), title, url, None);
                         Some(focus_mode::focus_mode_to_str(&m))
                     } else {
                         None
