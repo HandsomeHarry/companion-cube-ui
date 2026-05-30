@@ -1,6 +1,6 @@
 import type { EventRow, SummariesResponse } from './types';
 
-const BASE = 'http://127.0.0.1:7431';
+const BASE = '/api';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

@@ -305,12 +305,7 @@
   }
 
   function openUrl(url: string) {
-    const tauri = (window as any).__TAURI__;
-    if (tauri?.shell?.open) {
-      tauri.shell.open(url);
-    } else {
-      window.open(url, '_blank');
-    }
+    window.open(url, '_blank');
   }
 
   // Drag & drop between groups
@@ -356,28 +351,18 @@
     daemonStarting = true;
     daemonMsg = '';
     try {
-      const { invoke } = (window as any).__TAURI__;
-      if (!invoke) {
-        daemonMsg = 'Tauri not available — start manually: cargo run --bin ccube-daemon';
-        return;
+      daemonMsg = 'Daemon should already be running. Checking...';
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        daemonOnline.set(true);
+        daemonMsg = 'Daemon is running ✓';
+        await refreshDaemonInfo();
+        await loadLlmSettings();
+      } else {
+        daemonMsg = 'Daemon is not responding. Start it manually: ccube-daemon';
       }
-      daemonMsg = 'Starting daemon...';
-      const result = await invoke('start_daemon');
-      daemonMsg = result as string || 'Daemon started';
-      await new Promise(r => setTimeout(r, 3000));
-      try {
-        const res = await fetch('http://127.0.0.1:7431/health');
-        if (res.ok) {
-          daemonOnline.set(true);
-          daemonMsg = 'Daemon is running ✓';
-          await refreshDaemonInfo();
-          await loadLlmSettings();
-        }
-      } catch {
-        daemonMsg = 'Daemon started but not responding yet. Check again shortly.';
-      }
-    } catch (e: any) {
-      daemonMsg = `Error: ${e?.message || e}`;
+    } catch {
+      daemonMsg = 'Cannot reach daemon. Start it manually: ccube-daemon';
     } finally {
       daemonStarting = false;
     }

@@ -35,3 +35,7 @@ node_modules/
 build/
 src-tauri/target/
 package-lock.json
+
+# Installed agent skills (taste-skill)
+.agents/
+skills-lock.json
