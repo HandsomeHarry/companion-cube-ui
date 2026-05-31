@@ -113,7 +113,7 @@
 
   // Events not in any group — captured after last summarize
   $: groupedEventIds = new Set(displayGroups.flatMap(g => g.events.map(e => e.id)));
-  $: ungroupedEvents = filteredEvents.filter(e => !groupedEventIds.has(e.id));
+  $: ungroupedEvents = filteredEvents.filter(e => !groupedEventIds.has(e.id) && e.kind === 'app_focus');
 
   // Time range navigation
   let viewMode: 'day' | 'week' | 'month' = 'day';

@@ -831,10 +831,12 @@ async fn set_llm_config(
 
 /// How far back to look for events when summarizing.
 const SUMMARIZE_LOOKBACK_HOURS: i64 = 2;
-/// Minimum duration (ms) for an event to be included in summary.
-const SUMMARIZE_MIN_DURATION_MS: i64 = 3000;
-/// Maximum number of events to send to the LLM.
-const SUMMARIZE_MAX_EVENTS: usize = 15;
+
+/// Events shorter than this are excluded from grouping.
+const SUMMARIZE_MIN_DURATION_MS: i64 = 1000;
+
+/// Max events per summarize call. Keep under ~30 to stay within context limits.
+const SUMMARIZE_MAX_EVENTS: usize = 30;
 /// Maximum tokens for LLM response.
 const SUMMARIZE_MAX_TOKENS: u32 = 16384;
 /// LLM temperature for summarization.
