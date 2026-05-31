@@ -832,13 +832,11 @@ async fn set_llm_config(
 /// How far back to look for events when summarizing.
 const SUMMARIZE_LOOKBACK_HOURS: i64 = 2;
 
-/// Events shorter than this are excluded from grouping.
-const SUMMARIZE_MIN_DURATION_MS: i64 = 1000;
+/// Events shorter than this are excluded from grouping (sub-second noise).
+const SUMMARIZE_MIN_DURATION_MS: i64 = 0;
 
-/// Max events per summarize call. Keep under ~30 to stay within context limits.
-const SUMMARIZE_MAX_EVENTS: usize = 30;
-/// Maximum tokens for LLM response.
-const SUMMARIZE_MAX_TOKENS: u32 = 16384;
+/// Maximum tokens for LLM response. Higher to accommodate 200 events with descriptions.
+const SUMMARIZE_MAX_TOKENS: u32 = 32768;
 /// LLM temperature for summarization.
 const SUMMARIZE_TEMPERATURE: f32 = 0.3;
 
@@ -998,7 +996,6 @@ pub async fn run_summarize(
                 && e.duration_ms.unwrap_or(0) > SUMMARIZE_MIN_DURATION_MS
                 && e.ts < until
         })
-        .take(SUMMARIZE_MAX_EVENTS)
         .collect();
 
     if events.is_empty() {
@@ -1008,7 +1005,6 @@ pub async fn run_summarize(
         });
     }
 
-    // Build prompt and call LLM
     // Load recent corrections for prompt context (best-effort)
     let corrections: Vec<String> = db::open_corrections_db(&state.data_root.data_dir)
         .ok()
@@ -1026,63 +1022,60 @@ pub async fn run_summarize(
         })
         .collect();
 
-    let prompt = build_summarize_prompt(&events, &corrections);
-    let response = state
-        .llm
-        .complete(&prompt, "", SUMMARIZE_MAX_TOKENS, SUMMARIZE_TEMPERATURE)
-        .await
-        .map_err(|e| ApiError::internal(format!("LLM call failed: {e}")))?;
+    // Batch events into chunks and call LLM for each batch
+    const BATCH_SIZE: usize = 40;
+    let mut all_llm_groups: Vec<LlmSessionGroup> = Vec::new();
 
-    let content = response.content.trim();
+    for chunk in events.chunks(BATCH_SIZE) {
+        let prompt = build_summarize_prompt(chunk, &corrections);
 
-    let json_str = extract_json(content);
+        let response = state
+            .llm
+            .complete(&prompt, "", SUMMARIZE_MAX_TOKENS, SUMMARIZE_TEMPERATURE)
+            .await
+            .map_err(|e| ApiError::internal(format!("LLM call failed: {e}")))?;
 
-    // Parse LLM response
-    #[derive(Deserialize)]
-    struct SummarizeOutput {
-        groups: Vec<LlmSessionGroup>,
+        let content = response.content.trim();
+        let json_str = extract_json(content);
+
+        #[derive(Deserialize)]
+        struct SummarizeOutput {
+            groups: Vec<LlmSessionGroup>,
+        }
+
+        match serde_json::from_str::<SummarizeOutput>(&json_str) {
+            Ok(output) => all_llm_groups.extend(output.groups),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to parse LLM batch response, skipping batch");
+            }
+        }
     }
 
-    let output: SummarizeOutput = serde_json::from_str(&json_str).map_err(|e| {
-        ApiError::internal(format!("Failed to parse LLM response: {e}\nContent: {}", content.chars().take(500).collect::<String>()))
-    })?;
-
-    // Map 1-based indices from LLM back to actual events
-    // (LLM returns event number 1, 2, 3... not database row IDs)
-    let mut used_indices = std::collections::HashSet::<usize>::new();
+    // Map LLM groups to SessionGroupWithEvents
+    let mut used_event_ids = std::collections::HashSet::<i64>::new();
     let mut groups: Vec<SessionGroupWithEvents> = Vec::new();
 
-    for group in &output.groups {
+    for group in &all_llm_groups {
         let mut group_events = Vec::new();
-        for &id in &group.event_ids {
-            if id < 1 {
-                tracing::warn!(id, "LLM returned invalid event_id (must be >= 1)");
-                continue;
-            }
-            let idx = (id - 1) as usize; // convert 1-based to 0-based
-            if idx < events.len() {
-                group_events.push(events[idx].clone());
-                used_indices.insert(idx);
-            }
-        }
-        if group_events.is_empty() {
-            continue;
-        }
-
-        let total_duration: i64 = group_events.iter().filter_map(|e| e.duration_ms).sum();
-
-        // Remap descriptions: LLM uses 1-based event numbers, frontend needs DB row IDs
         let mut mapped_descriptions = std::collections::HashMap::new();
+
         for &llm_id in &group.event_ids {
             if llm_id < 1 { continue; }
             let idx = (llm_id - 1) as usize;
             if idx < events.len() {
-                if let Some(desc) = group.descriptions.get(&llm_id.to_string()).or_else(|| group.descriptions.get(&format!("{}", llm_id))) {
-                    mapped_descriptions.insert(events[idx].id.to_string(), desc.clone());
+                let event = &events[idx];
+                if used_event_ids.insert(event.id) {
+                    group_events.push(event.clone());
+                }
+                if let Some(desc) = group.descriptions.get(&llm_id.to_string()) {
+                    mapped_descriptions.insert(event.id.to_string(), desc.clone());
                 }
             }
         }
 
+        if group_events.is_empty() { continue; }
+
+        let total_duration: i64 = group_events.iter().filter_map(|e| e.duration_ms).sum();
         groups.push(SessionGroupWithEvents {
             title: group.title.clone(),
             distraction: group.distraction,
@@ -1092,20 +1085,48 @@ pub async fn run_summarize(
         });
     }
 
-    // Add uncategorized events as "Other"
-    let uncategorized: Vec<ccube_core::db::EventRow> = events
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !used_indices.contains(i))
-        .map(|(_, e)| e.clone())
+    // Auto-assign ungrouped events to nearest group by timestamp proximity
+    let ungrouped: Vec<_> = events.iter()
+        .filter(|e| !used_event_ids.contains(&e.id))
         .collect();
 
-    if !uncategorized.is_empty() {
-        let total_duration: i64 = uncategorized.iter().filter_map(|e| e.duration_ms).sum();
+    if !ungrouped.is_empty() && !groups.is_empty() {
+        // Build timestamp bounds for each group
+        let group_bounds: Vec<(i64, i64)> = groups.iter().map(|g| {
+            let ts_vals: Vec<i64> = g.events.iter().map(|e| e.ts).collect();
+            (*ts_vals.iter().min().unwrap_or(&0), *ts_vals.iter().max().unwrap_or(&0))
+        }).collect();
+
+        for event in ungrouped {
+            // Find the group whose time range is closest to this event's timestamp
+            let best_idx = group_bounds.iter().enumerate()
+                .min_by_key(|(_, (lo, hi))| {
+                    if event.ts >= *lo && event.ts <= *hi { 0 }
+                    else if event.ts < *lo { lo - event.ts }
+                    else { event.ts - hi }
+                })
+                .map(|(i, _)| i);
+
+            if let Some(idx) = best_idx {
+                groups[idx].events.push(event.clone());
+                groups[idx].total_duration_ms += event.duration_ms.unwrap_or(0);
+                used_event_ids.insert(event.id);
+            }
+        }
+
+        // Sort events within each group by timestamp
+        for g in &mut groups {
+            g.events.sort_by_key(|e| e.ts);
+        }
+    }
+
+    // Fallback: if no groups were formed at all, create one "Activity" group
+    if groups.is_empty() && !events.is_empty() {
+        let total_duration: i64 = events.iter().filter_map(|e| e.duration_ms).sum();
         groups.push(SessionGroupWithEvents {
-            title: "Other".to_string(),
+            title: "Activity".to_string(),
             distraction: false,
-            events: uncategorized,
+            events,
             total_duration_ms: total_duration,
             event_descriptions: std::collections::HashMap::new(),
         });
