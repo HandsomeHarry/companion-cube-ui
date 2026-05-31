@@ -365,7 +365,13 @@ Respond with ONLY the JSON object, no other text."#;
         return Err(LlmError::BadResponse("vision returned empty".into()));
     }
 
-    Ok(content.trim().to_string())
+    // Parse the JSON to extract just the activity description
+    let activity = serde_json::from_str::<serde_json::Value>(&content)
+        .ok()
+        .and_then(|v| v.get("activity").and_then(|a| a.as_str()).map(|s| s.to_string()))
+        .unwrap_or(content.trim().to_string());
+
+    Ok(activity)
 }
 
 #[cfg(test)]
