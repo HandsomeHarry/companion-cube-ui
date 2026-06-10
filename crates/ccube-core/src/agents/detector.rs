@@ -175,7 +175,7 @@ pub async fn run(briefing: &Briefing, llm: &dyn LlmBackend) -> DetectorOutput {
     let prompt = render_prompt(briefing);
 
     match llm.complete(&prompt, DETECTOR_GRAMMAR, 512, 0.2).await {
-        Ok(resp) => match serde_json::from_str::<DetectorOutput>(&resp.content) {
+        Ok(resp) => match parse_step2_lenient(&resp.content) {
             Ok(output) => output,
             Err(e) => {
                 tracing::warn!(error = %e, "detector: failed to parse LLM response");
@@ -257,13 +257,7 @@ fn format_timeline_events(events: &[crate::briefing::TimelineEvent]) -> String {
     events
         .iter()
         .map(|e| {
-            let ts_hms = {
-                let secs = e.ts / 1000;
-                let h = (secs / 3600) % 24;
-                let m = (secs / 60) % 60;
-                let s = secs % 60;
-                format!("{h:02}:{m:02}:{s:02}")
-            };
+            let ts_hms = ts_hms(e.ts);
             let dur_secs = e.duration_ms / 1000;
             let ocr_line = e
                 .ocr_text
@@ -276,14 +270,122 @@ fn format_timeline_events(events: &[crate::briefing::TimelineEvent]) -> String {
                 .map(|u| format!(" | url: {}", u))
                 .unwrap_or_default();
             let title = e.title.as_deref().unwrap_or("(no title)");
+            // event_ts is printed explicitly so the model can echo the exact
+            // integer in its annotations (Ollama cannot enforce the GBNF
+            // grammar, so the schema alone doesn't guarantee an int).
             format!(
-                "  [{ts_hms}] {app} | {title} | {dur_secs}s | mode: {mode}{ocr_line}{url_line}",
+                "  [{ts_hms}] event_ts={ts} {app} | {title} | {dur_secs}s | mode: {mode}{ocr_line}{url_line}",
+                ts = e.ts,
                 app = e.app,
                 mode = e.mode,
             )
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Format an epoch-ms timestamp as the `HH:MM:SS` label used in prompts.
+fn ts_hms(ts_ms: i64) -> String {
+    let secs = ts_ms / 1000;
+    let h = (secs / 3600) % 24;
+    let m = (secs / 60) % 60;
+    let s = secs % 60;
+    format!("{h:02}:{m:02}:{s:02}")
+}
+
+/// Parse the step-1 annotation JSON leniently.
+///
+/// Grammars are a llama.cpp feature — Ollama ignores them — so small local
+/// models emit `event_ts` in whatever shape they fancy: epoch ms, epoch
+/// seconds, a digit string, or the `HH:MM:SS` label shown in the prompt.
+/// Each annotation is resolved back to a real event timestamp; entries that
+/// match no event are dropped (annotations are best-effort context for
+/// step 2, not load-bearing data).
+fn parse_step1_lenient(
+    content: &str,
+    events: &[crate::briefing::TimelineEvent],
+) -> Result<AnnotatedTimeline, serde_json::Error> {
+    let v: serde_json::Value = serde_json::from_str(content)?;
+
+    let rhythm_notes = v
+        .get("rhythm_notes")
+        .and_then(|r| r.as_str())
+        .map(String::from);
+
+    let resolve = |raw: &serde_json::Value| -> Option<i64> {
+        let from_num = |n: i64| {
+            if events.iter().any(|e| e.ts == n) {
+                Some(n)
+            } else {
+                // Model may echo epoch seconds instead of milliseconds.
+                events.iter().find(|e| e.ts / 1000 == n).map(|e| e.ts)
+            }
+        };
+        match raw {
+            serde_json::Value::Number(n) => n.as_i64().and_then(from_num),
+            serde_json::Value::String(s) => {
+                if let Ok(n) = s.trim().parse::<i64>() {
+                    from_num(n)
+                } else {
+                    // "HH:MM:SS" label from the prompt
+                    events.iter().find(|e| ts_hms(e.ts) == s.trim()).map(|e| e.ts)
+                }
+            }
+            _ => None,
+        }
+    };
+
+    let annotations = v
+        .get("annotations")
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| {
+                    let intent = a.get("intent")?.as_str()?.to_string();
+                    let event_ts = resolve(a.get("event_ts")?)?;
+                    let intent_reasoning = a
+                        .get("intent_reasoning")
+                        .and_then(|r| r.as_str())
+                        .map(String::from);
+                    Some(AnnotatedEntry {
+                        event_ts,
+                        intent,
+                        intent_reasoning,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(AnnotatedTimeline {
+        annotations,
+        rhythm_notes,
+    })
+}
+
+/// Parse the step-2 verdict JSON leniently (same rationale as step 1:
+/// Ollama can't enforce the grammar). Sanitizes the shapes small models
+/// actually get wrong — non-integer `patterns_cited` entries (timestamps,
+/// strings) are dropped, and omitted optional fields become null — then
+/// hands off to the normal typed deserialization.
+fn parse_step2_lenient(content: &str) -> Result<DetectorOutput, serde_json::Error> {
+    let mut v: serde_json::Value = serde_json::from_str(content)?;
+
+    if let Some(obj) = v.as_object_mut() {
+        let cited: Vec<u64> = obj
+            .get("patterns_cited")
+            .and_then(|p| p.as_array())
+            .map(|arr| arr.iter().filter_map(|x| x.as_u64()).collect())
+            .unwrap_or_default();
+        obj.insert("patterns_cited".to_string(), serde_json::json!(cited));
+
+        obj.entry("reasoning").or_insert(serde_json::json!(""));
+        for key in ["nudge_style", "nudge_message", "vault_category"] {
+            obj.entry(key).or_insert(serde_json::Value::Null);
+        }
+    }
+
+    serde_json::from_value(v)
 }
 
 /// Render the Step 1 prompt (intent annotation).
@@ -370,13 +472,7 @@ fn format_annotated_events(events: &[crate::briefing::TimelineEvent], annotation
     events
         .iter()
         .map(|e| {
-            let ts_hms = {
-                let secs = e.ts / 1000;
-                let h = (secs / 3600) % 24;
-                let m = (secs / 60) % 60;
-                let s = secs % 60;
-                format!("{h:02}:{m:02}:{s:02}")
-            };
+            let ts_hms = ts_hms(e.ts);
             let dur_secs = e.duration_ms / 1000;
             let title = e.title.as_deref().unwrap_or("(no title)");
 
@@ -497,7 +593,7 @@ pub async fn run_v2(briefing: &BriefingV2, llm: &dyn LlmBackend) -> DetectorV2Ou
         .complete(&step1_prompt, ANNOTATION_GRAMMAR, 2048, 0.2)
         .await
     {
-        Ok(resp) => match serde_json::from_str::<AnnotatedTimeline>(&resp.content) {
+        Ok(resp) => match parse_step1_lenient(&resp.content, &briefing.events) {
             Ok(timeline) => (timeline.annotations, timeline.rhythm_notes),
             Err(e) => {
                 tracing::warn!(error = %e, "detector_v2: failed to parse step1 annotation");
@@ -514,7 +610,7 @@ pub async fn run_v2(briefing: &BriefingV2, llm: &dyn LlmBackend) -> DetectorV2Ou
     let step2_prompt = render_step2_prompt(briefing, &annotations, rhythm_notes.as_deref());
 
     match llm.complete(&step2_prompt, DETECTOR_GRAMMAR, 512, 0.2).await {
-        Ok(resp) => match serde_json::from_str::<DetectorOutput>(&resp.content) {
+        Ok(resp) => match parse_step2_lenient(&resp.content) {
             Ok(output) => DetectorV2Output {
                 decision: output.decision,
                 reasoning: output.reasoning,
@@ -584,6 +680,69 @@ mod tests {
             patterns_snippet: "§ coding in rust is on-task".to_string(),
             patterns_hash: "abc123".to_string(),
         }
+    }
+
+    fn test_events() -> Vec<crate::briefing::TimelineEvent> {
+        vec![crate::briefing::TimelineEvent {
+            ts: 1749600782000, // 00:13:02 UTC
+            app: "Brave Browser".to_string(),
+            title: Some("YouTube".to_string()),
+            ocr_text: None,
+            url: None,
+            duration_ms: 30000,
+            mode: "Browsing".to_string(),
+        }]
+    }
+
+    #[test]
+    fn test_step1_lenient_int_ts() {
+        let json = r#"{"annotations":[{"event_ts":1749600782000,"intent":"watching videos"}],"rhythm_notes":null}"#;
+        let t = parse_step1_lenient(json, &test_events()).unwrap();
+        assert_eq!(t.annotations.len(), 1);
+        assert_eq!(t.annotations[0].event_ts, 1749600782000);
+    }
+
+    #[test]
+    fn test_step1_lenient_string_digits_and_seconds() {
+        // epoch seconds as a string — both quirks at once
+        let json = r#"{"annotations":[{"event_ts":"1749600782","intent":"watching videos"}]}"#;
+        let t = parse_step1_lenient(json, &test_events()).unwrap();
+        assert_eq!(t.annotations[0].event_ts, 1749600782000);
+    }
+
+    #[test]
+    fn test_step1_lenient_hms_label() {
+        let json = r#"{"annotations":[{"event_ts":"00:13:02","intent":"watching videos","intent_reasoning":"title says YouTube"}]}"#;
+        let t = parse_step1_lenient(json, &test_events()).unwrap();
+        assert_eq!(t.annotations[0].event_ts, 1749600782000);
+        assert_eq!(
+            t.annotations[0].intent_reasoning.as_deref(),
+            Some("title says YouTube")
+        );
+    }
+
+    #[test]
+    fn test_step1_lenient_unmatched_dropped() {
+        let json = r#"{"annotations":[{"event_ts":"99:99:99","intent":"???"},{"event_ts":"00:13:02","intent":"ok"}]}"#;
+        let t = parse_step1_lenient(json, &test_events()).unwrap();
+        assert_eq!(t.annotations.len(), 1);
+        assert_eq!(t.annotations[0].intent, "ok");
+    }
+
+    #[test]
+    fn test_step2_lenient_garbage_patterns_cited() {
+        // timestamps-as-strings in patterns_cited, optional fields omitted
+        let json = r#"{"decision":"silent","reasoning":"working normally","patterns_cited":["08:18:32", 2, "x"]}"#;
+        let out = parse_step2_lenient(json).unwrap();
+        assert_eq!(out.decision, DetectorDecision::Silent);
+        assert_eq!(out.patterns_cited, vec![2]);
+        assert!(out.nudge_message.is_none());
+    }
+
+    #[test]
+    fn test_step1_prompt_includes_event_ts() {
+        let formatted = format_timeline_events(&test_events());
+        assert!(formatted.contains("event_ts=1749600782000"));
     }
 
     struct MockLlm {

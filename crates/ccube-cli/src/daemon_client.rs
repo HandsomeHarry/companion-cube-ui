@@ -2,7 +2,9 @@ use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-const DAEMON_URL: &str = "http://127.0.0.1:7431";
+// All daemon API routes live under /api since the browser pivot (the bare
+// root serves the embedded SvelteKit UI, which answers any path with HTML 200).
+const DAEMON_URL: &str = "http://127.0.0.1:7431/api";
 
 /// Check if the daemon is running by hitting /health with a short timeout.
 pub async fn is_daemon_running() -> bool {

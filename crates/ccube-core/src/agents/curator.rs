@@ -231,7 +231,11 @@ pub async fn run(
     let prompt = render_prompt(profile, current_patterns, formatted_corrections);
 
     match llm.complete(&prompt, CURATOR_GRAMMAR, 1024, 0.4).await {
-        Ok(resp) => serde_json::from_str::<CuratorOutput>(&resp.content)
+        // Parse via Value first: duplicate keys (which sloppy local models
+        // emit, and Ollama's ignored grammar can't prevent) then collapse to
+        // last-wins instead of failing the whole run.
+        Ok(resp) => serde_json::from_str::<serde_json::Value>(&resp.content)
+            .and_then(serde_json::from_value::<CuratorOutput>)
             .map_err(|e| CuratorError::ParseFailed(format!("{e}: {}", resp.content))),
         Err(LlmError::Unreachable(msg)) => Err(CuratorError::LlmUnavailable(msg)),
         Err(LlmError::BadResponse(msg)) => Err(CuratorError::ParseFailed(msg)),
