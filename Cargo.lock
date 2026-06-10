@@ -472,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "ccube-capture"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "active-win-pos-rs",
  "anyhow",
@@ -493,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "ccube-cli"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "ccube-capture",
@@ -511,7 +511,7 @@ dependencies = [
 
 [[package]]
 name = "ccube-core"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -532,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "ccube-daemon"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",

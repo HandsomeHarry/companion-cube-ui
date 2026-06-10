@@ -2,6 +2,7 @@
 target/
 debug/
 release/
+dist/
 
 # IDE
 .idea/
@@ -29,12 +30,10 @@ nul
 ShiyiYu_Portfolio_LQ.pdf
 design/
 
-# Node / Tauri frontend
+# Node frontend
 node_modules/
 .svelte-kit/
 build/
-src-tauri/target/
-package-lock.json
 
 # Installed agent skills (taste-skill)
 .agents/
