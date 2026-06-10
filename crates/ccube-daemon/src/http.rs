@@ -733,11 +733,11 @@ async fn get_llm_config(
     State(_state): State<Arc<AppState>>,
 ) -> Json<LlmConfigResponse> {
     let provider = std::env::var("CCUBE_LLM_PROVIDER")
-        .unwrap_or_else(|_| "openai-compatible".to_string());
+        .unwrap_or_else(|_| "ollama".to_string());
     let url = std::env::var("CCUBE_LLM_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
     let model = std::env::var("CCUBE_LLM_MODEL")
-        .unwrap_or_else(|_| "default".to_string());
+        .unwrap_or_else(|_| "gemma4:e4b".to_string());
     let has_token = std::env::var("CCUBE_LLM_TOKEN")
         .ok()
         .filter(|t| !t.is_empty())

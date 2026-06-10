@@ -48,13 +48,13 @@ impl LlamaCppClient {
     }
 
     pub fn from_env_with_timeout(timeout: Duration) -> Result<Self, String> {
-        let base_url =
-            std::env::var("CCUBE_LLM_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+        let base_url = std::env::var("CCUBE_LLM_URL")
+            .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
         let token = std::env::var("CCUBE_LLM_TOKEN")
             .ok()
             .filter(|t| !t.is_empty());
         let provider =
-            std::env::var("CCUBE_LLM_PROVIDER").unwrap_or_else(|_| "openai-compatible".to_string());
+            std::env::var("CCUBE_LLM_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
 
         Ok(Self {
             base_url,
@@ -65,7 +65,7 @@ impl LlamaCppClient {
     }
 
     fn model() -> String {
-        std::env::var("CCUBE_LLM_MODEL").unwrap_or_else(|_| "default".to_string())
+        std::env::var("CCUBE_LLM_MODEL").unwrap_or_else(|_| "gemma4:e4b".to_string())
     }
 
     fn do_request(

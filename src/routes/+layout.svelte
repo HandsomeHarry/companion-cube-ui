@@ -713,22 +713,22 @@
             <div class="field">
               <label class="field__label" for="provider">Provider</label>
               <select id="provider" class="field__select" bind:value={provider}>
+                <option value="ollama">Ollama (local)</option>
+                <option value="llamacpp">llama.cpp (local)</option>
                 <option value="openai-compatible">OpenAI Compatible</option>
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic</option>
-                <option value="ollama">Ollama (local)</option>
-                <option value="llamacpp">llama.cpp (local)</option>
               </select>
             </div>
 
             <div class="field">
               <label class="field__label" for="url">API Base URL</label>
-              <input id="url" type="url" class="field__input" bind:value={llmUrl} placeholder="http://localhost:8080" />
+              <input id="url" type="url" class="field__input" bind:value={llmUrl} placeholder="http://localhost:11434/v1" />
             </div>
 
             <div class="field">
               <label class="field__label" for="model">Model</label>
-              <input id="model" type="text" class="field__input" bind:value={llmModel} placeholder="default" />
+              <input id="model" type="text" class="field__input" bind:value={llmModel} placeholder="gemma4:e4b" />
             </div>
 
             <div class="field">
