@@ -1,5 +1,5 @@
 use ccube_core::agents::{curator, reflector};
-use ccube_core::{agents::detector, briefing, db, eval, memory};
+use ccube_core::{agents::detector, briefing, db, eval};
 use chrono::{Datelike, Timelike};
 use serde::Serialize;
 use std::path::Path;
@@ -98,12 +98,14 @@ async fn run_detector(state: &AppState, trigger: &str) {
         }
     };
 
-    // Build v2 briefing from frozen memory
+    // Build v2 briefing from a fresh memory snapshot, so curator/reflector
+    // commits take effect on the next detector run without a restart.
+    let mem = state.memory_snapshot();
     let briefing = briefing::build_v2(
         now_ms,
         &events,
-        &state.frozen_profile,
-        &state.frozen_patterns,
+        &mem.profile,
+        &mem.patterns,
         &[], // vault_today: not implemented until later phases
     );
 
@@ -128,7 +130,7 @@ async fn run_detector(state: &AppState, trigger: &str) {
         nudge_style_str.as_deref(),
         output.nudge_message.as_deref(),
         &briefing_json,
-        &state.frozen_patterns_hash,
+        &mem.patterns_hash,
         detector::PROMPT_VERSION_V2,
         duration_ms as i64,
     ) {
@@ -165,7 +167,7 @@ async fn run_detector(state: &AppState, trigger: &str) {
         nudge_style: nudge_style_str,
         nudge_message: output.nudge_message.as_deref(),
         patterns_cited: &output.patterns_cited,
-        patterns_hash: &state.frozen_patterns_hash,
+        patterns_hash: &mem.patterns_hash,
         decision_id,
         duration_ms,
     };
@@ -369,11 +371,12 @@ async fn run_curator_loop(state: Arc<AppState>, cancel: CancellationToken) {
         tracing::info!(pending, "curator: starting scheduled daily run");
         let start = std::time::Instant::now();
 
+        let mem = state.memory_snapshot();
         match curator::run_curator(
             &state.data_root.data_dir,
             &state.data_root.memory_dir,
-            &state.frozen_profile,
-            &state.frozen_patterns,
+            &mem.profile,
+            &mem.patterns,
             state.curator_llm.as_ref(),
             state.llm.as_ref(),
             false, // not dry_run
@@ -517,20 +520,14 @@ async fn run_reflector_loop(state: Arc<AppState>, cancel: CancellationToken) {
             continue;
         }
 
-        // Read live patterns from disk (curator may have updated since daemon start)
-        let current_patterns = match memory::read_patterns(&state.data_root.memory_dir) {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::error!(error = %e, "reflector: failed to read patterns.md");
-                continue;
-            }
-        };
+        // Fresh snapshot: curator may have updated memory since the last tick.
+        let mem = state.memory_snapshot();
 
         // Determine trigger
         let now = chrono::Local::now();
         let is_weekly =
             now.weekday() == chrono::Weekday::Sun && now.hour() == 3;
-        let is_size = current_patterns.len() > 1600;
+        let is_size = mem.patterns.len() > 1600;
 
         let trigger = if is_weekly {
             "weekly"
@@ -551,7 +548,7 @@ async fn run_reflector_loop(state: Arc<AppState>, cancel: CancellationToken) {
 
         tracing::info!(
             trigger,
-            patterns_len = current_patterns.len(),
+            patterns_len = mem.patterns.len(),
             "reflector: starting scheduled run"
         );
         let start = std::time::Instant::now();
@@ -559,8 +556,8 @@ async fn run_reflector_loop(state: Arc<AppState>, cancel: CancellationToken) {
         match reflector::run_reflector(
             &state.data_root.data_dir,
             &state.data_root.memory_dir,
-            &state.frozen_profile,
-            &current_patterns,
+            &mem.profile,
+            &mem.patterns,
             state.curator_llm.as_ref(),
             state.llm.as_ref(), // eval uses detector LLM (faster)
             false,              // not dry_run

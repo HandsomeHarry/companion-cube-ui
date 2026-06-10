@@ -1,6 +1,6 @@
 # Companion Cube
 
-**v0.2.1**
+**v0.2.2**
 
 Companion Cube helps you work *with* your brain, not against it. Instead of blocking distractions, it gently saves them for later—because that rabbit hole about mechanical keyboards might actually be worth exploring, just not right now.
 
@@ -53,6 +53,8 @@ Spotify Wrapped, but for your focus patterns.
 
 
 ### 💡 Aura
+*Planned — not in the current release.*
+
 Your room reflects your focus state.
 
 - Connects to existing smart lights (HomeKit, Home Assistant)

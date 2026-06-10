@@ -25,10 +25,6 @@ pub struct AppState {
     pub start_time: std::time::Instant,
     pub shutdown_token: CancellationToken,
     pub version: &'static str,
-    /// Frozen at startup — "memory never changes mid-session" (spec §15).
-    pub frozen_profile: String,
-    pub frozen_patterns: String,
-    pub frozen_patterns_hash: String,
     /// LLM client for detector calls (10s timeout).
     pub llm: Arc<dyn LlmBackend>,
     /// LLM client for curator calls (120s timeout).
@@ -43,10 +39,31 @@ pub struct AppState {
     pub cached_summaries: Arc<tokio::sync::RwLock<Option<SummariesResponse>>>,
 }
 
+impl AppState {
+    /// Load the current memory snapshot from disk.
+    ///
+    /// Each agent run (detector, curator, reflector, briefing) reads a fresh
+    /// snapshot so curator/reflector commits and manual `ccube memory edit`s
+    /// take effect on the next run without a daemon restart. Replaces the
+    /// phase-4 frozen-at-startup memory (see DECISIONS.md 2026-06-10).
+    /// Unreadable files degrade to empty memory; agents must never crash.
+    pub fn memory_snapshot(&self) -> memory::MemorySnapshot {
+        memory::load_snapshot(&self.data_root.memory_dir).unwrap_or_else(|e| {
+            tracing::error!(error = %e, "failed to load memory snapshot, using empty memory");
+            memory::MemorySnapshot {
+                profile: String::new(),
+                patterns: String::new(),
+                patterns_hash: memory::patterns_hash(""),
+            }
+        })
+    }
+}
+
 /// Build the axum router with all endpoints.
 pub fn router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
+        .route("/llm/health", get(llm_health))
         .route("/activity", get(activity))
         .route("/briefing", get(get_briefing))
         .route("/detect", post(detect))
@@ -230,6 +247,16 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     })
 }
 
+/// GET /llm/health — probe the configured LLM backend (2s timeout).
+/// Lets the UI show a quiet setup hint when Ollama isn't running or the
+/// model isn't downloaded, instead of failing silently.
+async fn llm_health() -> Result<Json<ccube_core::llm::LlmHealth>, ApiError> {
+    let health = tokio::task::spawn_blocking(ccube_core::llm::check_health)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(health))
+}
+
 async fn activity(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ActivityQuery>,
@@ -341,13 +368,8 @@ async fn get_briefing(
     let conn = db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
     let events = db::query_recent_events(&conn, since_ms).map_err(ApiError::internal)?;
 
-    let b = briefing::build_v2(
-        now_ms,
-        &events,
-        &state.frozen_profile,
-        &state.frozen_patterns,
-        &[],
-    );
+    let mem = state.memory_snapshot();
+    let b = briefing::build_v2(now_ms, &events, &mem.profile, &mem.patterns, &[]);
 
     Ok(Json(b))
 }
@@ -365,13 +387,8 @@ async fn detect(
     let conn = db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
     let events = db::query_recent_events(&conn, since_ms).map_err(ApiError::internal)?;
 
-    let briefing = briefing::build_v2(
-        now_ms,
-        &events,
-        &state.frozen_profile,
-        &state.frozen_patterns,
-        &[],
-    );
+    let mem = state.memory_snapshot();
+    let briefing = briefing::build_v2(now_ms, &events, &mem.profile, &mem.patterns, &[]);
 
     let mut output = detector::run_v2(&briefing, state.llm.as_ref()).await;
     let duration_ms = start.elapsed().as_millis() as i64;
@@ -396,7 +413,7 @@ async fn detect(
         nudge_style_str.as_deref(),
         output.nudge_message.as_deref(),
         &briefing_json,
-        &state.frozen_patterns_hash,
+        &mem.patterns_hash,
         detector::PROMPT_VERSION_V2,
         duration_ms,
     )
@@ -555,11 +572,12 @@ async fn run_curator_handler(
 
     let start = std::time::Instant::now();
 
+    let mem = state.memory_snapshot();
     let result = curator::run_curator(
         &state.data_root.data_dir,
         &state.data_root.memory_dir,
-        &state.frozen_profile,
-        &state.frozen_patterns,
+        &mem.profile,
+        &mem.patterns,
         state.curator_llm.as_ref(),
         state.llm.as_ref(), // eval replay uses detector LLM (10s timeout)
         dry_run,
@@ -634,15 +652,12 @@ async fn run_reflector_handler(
 
     let start = std::time::Instant::now();
 
-    // Read live patterns from disk (not frozen)
-    let live_patterns =
-        memory::read_patterns(&state.data_root.memory_dir).map_err(ApiError::internal)?;
-
+    let mem = state.memory_snapshot();
     let result = reflector::run_reflector(
         &state.data_root.data_dir,
         &state.data_root.memory_dir,
-        &state.frozen_profile,
-        &live_patterns,
+        &mem.profile,
+        &mem.patterns,
         state.curator_llm.as_ref(),
         state.llm.as_ref(),
         dry_run,
@@ -767,7 +782,7 @@ struct SetLlmConfigResponse {
 
 /// PUT /config/llm — update LLM configuration in .env file.
 async fn set_llm_config(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Json(body): Json<SetLlmConfigRequest>,
 ) -> Result<Json<SetLlmConfigResponse>, ApiError> {
     // .env lives in the daemon's working directory (project root)

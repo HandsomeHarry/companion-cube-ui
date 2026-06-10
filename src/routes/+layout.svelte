@@ -3,7 +3,7 @@
   import Rail from '$components/Rail.svelte';
   import Rhythm from '$components/Rhythm.svelte';
   import { activeView, daemonOnline, historyEvents, loading, error, llmConfig, fetchLlmConfig, saveLlmConfig, summaries, summarizing, fetchSummaries, triggerSummarize } from '$lib/stores';
-  import { rhythmReport, fetchRhythm } from '$lib/stores';
+  import { rhythmReport, fetchRhythm, llmHealth, fetchLlmHealth } from '$lib/stores';
   import { api } from '$lib/api';
   import { onMount } from 'svelte';
   import type { SessionGroup, EventRow } from '$lib/types';
@@ -466,6 +466,8 @@
     loading.set(true);
     refreshHistory().finally(() => { loading.set(false); });
     fetchRhythm(7);
+    fetchLlmHealth();
+    const llmHealthInterval = setInterval(fetchLlmHealth, 30_000);
 
     const refreshInterval = setInterval(() => {
       if ($activeView === 'history') {
@@ -489,6 +491,7 @@
       clearInterval(healthInterval);
       clearInterval(refreshInterval);
       clearInterval(dateInterval);
+      clearInterval(llmHealthInterval);
     };
   });
 </script>
@@ -496,6 +499,17 @@
 <div class="app">
   <Rail onViewChange={handleViewChange} />
   <main class="content">
+
+    {#if $llmHealth && (!$llmHealth.reachable || $llmHealth.model_present === false) && $activeView !== 'settings'}
+      <div class="setup-hint" role="status">
+        {#if !$llmHealth.reachable}
+          {$llmHealth.provider === 'ollama' ? 'Ollama isn’t running' : 'The AI backend can’t be reached'} — your activity is still recorded, but won’t be organized.
+        {:else}
+          The model “{$llmHealth.model}” isn’t downloaded yet — run <code>ollama pull {$llmHealth.model}</code> in a terminal.
+        {/if}
+        <button class="setup-hint__link" on:click={() => handleViewChange('settings')}>Settings</button>
+      </div>
+    {/if}
 
     {#if $activeView === 'history'}
       <!-- ==================== HISTORY VIEW ==================== -->
@@ -1344,5 +1358,32 @@
     margin-top: 16px;
     display: flex;
     justify-content: flex-end;
+  }
+
+  .setup-hint {
+    font-size: 13px;
+    color: var(--ink-soft);
+    background: var(--card-white);
+    border: 1px solid var(--brand-orange);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 16px;
+    line-height: 1.4;
+  }
+
+  .setup-hint code {
+    font-size: 12px;
+    user-select: all;
+  }
+
+  .setup-hint__link {
+    border: none;
+    background: none;
+    color: var(--brand-orange);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 6px;
+    text-decoration: underline;
   }
 </style>

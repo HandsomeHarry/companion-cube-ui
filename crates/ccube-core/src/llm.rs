@@ -374,6 +374,76 @@ Respond with ONLY the JSON object, no other text."#;
     Ok(activity)
 }
 
+/// Result of a cheap reachability probe of the configured LLM backend.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LlmHealth {
+    pub provider: String,
+    pub url: String,
+    pub model: String,
+    pub reachable: bool,
+    /// Ollama only: whether the configured model is downloaded locally.
+    /// `None` for non-Ollama providers (no portable way to list models).
+    pub model_present: Option<bool>,
+}
+
+/// Probe the configured LLM backend with a 2-second timeout.
+///
+/// For Ollama this hits `/api/tags` and also checks the configured model is
+/// downloaded. For other providers any HTTP response (even an error status)
+/// counts as reachable — only connection failures mean the backend is down.
+/// Blocking; call from `spawn_blocking` in async contexts.
+pub fn check_health() -> LlmHealth {
+    let provider =
+        std::env::var("CCUBE_LLM_PROVIDER").unwrap_or_else(|_| "ollama".to_string());
+    let url = std::env::var("CCUBE_LLM_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    let model =
+        std::env::var("CCUBE_LLM_MODEL").unwrap_or_else(|_| "gemma4:e4b".to_string());
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(2))
+        .build();
+
+    let (reachable, model_present) = if provider == "ollama" {
+        let base = url.trim_end_matches('/');
+        let base = base.strip_suffix("/v1").unwrap_or(base);
+        match agent.get(&format!("{base}/api/tags")).call() {
+            Ok(resp) => {
+                let present = resp.into_json::<serde_json::Value>().ok().map(|v| {
+                    v.get("models")
+                        .and_then(|m| m.as_array())
+                        .map(|models| {
+                            models.iter().any(|m| {
+                                m.get("name").and_then(|n| n.as_str()).is_some_and(|name| {
+                                    name == model
+                                        || name == format!("{model}:latest")
+                                        || (!model.contains(':')
+                                            && name.starts_with(&format!("{model}:")))
+                                })
+                            })
+                        })
+                        .unwrap_or(false)
+                });
+                (true, present)
+            }
+            Err(_) => (false, None),
+        }
+    } else {
+        match agent.get(&url).call() {
+            Ok(_) | Err(ureq::Error::Status(_, _)) => (true, None),
+            Err(_) => (false, None),
+        }
+    };
+
+    LlmHealth {
+        provider,
+        url,
+        model,
+        reachable,
+        model_present,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

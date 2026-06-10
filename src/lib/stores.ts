@@ -53,6 +53,26 @@ export async function triggerSummarize(sinceMs?: number, untilMs?: number, range
   }
 }
 
+// LLM backend reachability — drives the one-line setup hint in the layout.
+export const llmHealth = writable<{
+  provider: string;
+  url: string;
+  model: string;
+  reachable: boolean;
+  model_present: boolean | null;
+} | null>(null);
+
+export async function fetchLlmHealth() {
+  try {
+    const health = await api.llmHealth();
+    llmHealth.set(health);
+    return health;
+  } catch {
+    llmHealth.set(null);
+    return null;
+  }
+}
+
 // LLM Config
 export const llmConfig = writable<{
   provider: string;

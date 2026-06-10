@@ -102,17 +102,18 @@ fn main() -> Result<()> {
     let pid_file = root.data_dir.join("daemon.pid");
     std::fs::write(&pid_file, std::process::id().to_string())?;
 
-    // 5. Load frozen memory (spec §15: "Memory never changes mid-session")
-    let frozen_profile = memory::read_profile(&root.memory_dir).unwrap_or_default();
-    let frozen_patterns = memory::read_patterns(&root.memory_dir).unwrap_or_default();
-    let frozen_patterns_hash = memory::patterns_hash(&frozen_patterns);
-
-    tracing::info!(
-        profile_chars = frozen_profile.len(),
-        patterns_chars = frozen_patterns.len(),
-        patterns_hash = %frozen_patterns_hash,
-        "frozen memory loaded"
-    );
+    // 5. Log the memory state at startup. Memory is no longer frozen here:
+    // each agent run loads a fresh snapshot (AppState::memory_snapshot) so
+    // curator/reflector commits take effect without a restart.
+    match memory::load_snapshot(&root.memory_dir) {
+        Ok(snap) => tracing::info!(
+            profile_chars = snap.profile.len(),
+            patterns_chars = snap.patterns.len(),
+            patterns_hash = %snap.patterns_hash,
+            "memory loaded (live per-run snapshots)"
+        ),
+        Err(e) => tracing::warn!(error = %e, "could not read memory at startup"),
+    }
 
     // 6. Create LLM clients (detector: 10s timeout, curator: 120s timeout)
     let llm_client: Arc<dyn ccube_core::llm::LlmBackend> =
@@ -139,9 +140,6 @@ fn main() -> Result<()> {
         start_time: std::time::Instant::now(),
         shutdown_token: cancel.clone(),
         version: env!("CARGO_PKG_VERSION"),
-        frozen_profile,
-        frozen_patterns,
-        frozen_patterns_hash,
         llm: llm_client,
         curator_llm: curator_llm_client,
         detector_trigger: detector_trigger.clone(),

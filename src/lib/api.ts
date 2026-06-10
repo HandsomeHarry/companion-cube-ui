@@ -25,6 +25,9 @@ export const api = {
   recent: () =>
     request<EventRow[]>('/activity?hours=24'),
 
+  llmHealth: () =>
+    request<{ provider: string; url: string; model: string; reachable: boolean; model_present: boolean | null }>('/llm/health'),
+
   // LLM Configuration
   getLlmConfig: () =>
     request<{ provider: string; url: string; model: string; has_token: boolean }>('/config/llm'),
