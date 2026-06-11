@@ -9,10 +9,12 @@
 //! `UserEvent::Shutdown` back through the event-loop proxy so the process exits
 //! only after durable state has been written.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
 use tokio_util::sync::CancellationToken;
-use tray_icon::menu::{Menu, MenuEvent, MenuItem};
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
 
 /// Focus state mirrored into the tray icon — the Aura concept at its smallest:
@@ -55,7 +57,12 @@ pub fn build_event_loop() -> EventLoop<UserEvent> {
 
 /// Run the tray event loop on the main thread. Never returns; exits the process
 /// once the tokio runtime signals [`UserEvent::Shutdown`].
-pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboard_url: String) -> ! {
+pub fn run(
+    event_loop: EventLoop<UserEvent>,
+    cancel: CancellationToken,
+    dashboard_url: String,
+    snooze_until_ms: Arc<AtomicI64>,
+) -> ! {
     // Forward global menu events into the typed event loop so it wakes up.
     let proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |e| {
@@ -64,11 +71,27 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboar
 
     let menu = Menu::new();
     let open_item = MenuItem::new("Open Dashboard", true, None);
+    let snooze_5 = MenuItem::new("Snooze Nudges for 5 Minutes", true, None);
+    let snooze_15 = MenuItem::new("Snooze Nudges for 15 Minutes", true, None);
+    let snooze_30 = MenuItem::new("Snooze Nudges for 30 Minutes", true, None);
     let quit_item = MenuItem::new("Quit", true, None);
-    if let Err(e) = menu.append_items(&[&open_item, &quit_item]) {
+    if let Err(e) = menu.append_items(&[
+        &open_item,
+        &PredefinedMenuItem::separator(),
+        &snooze_5,
+        &snooze_15,
+        &snooze_30,
+        &PredefinedMenuItem::separator(),
+        &quit_item,
+    ]) {
         tracing::error!(error = %e, "failed to build tray menu");
     }
     let open_id = open_item.id().clone();
+    let snooze_ids = [
+        (snooze_5.id().clone(), 5i64),
+        (snooze_15.id().clone(), 15i64),
+        (snooze_30.id().clone(), 30i64),
+    ];
     let quit_id = quit_item.id().clone();
 
     // The TrayIcon is not Send and must live on the main thread inside the loop.
@@ -84,6 +107,7 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboar
                     .with_menu(Box::new(menu.clone()))
                     .with_tooltip("Companion Cube")
                     .with_icon(brand_icon())
+                    .with_icon_as_template(true)
                     .build()
                 {
                     Ok(t) => {
@@ -106,9 +130,12 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboar
             Event::UserEvent(UserEvent::State(state, tooltip)) => {
                 tracing::debug!(?state, %tooltip, "tray: state update received");
                 if let Some(ref t) = tray {
-                    if let Err(e) = t.set_icon(Some(state_icon(state))) {
+                    let (icon, is_template) = state_icon(state);
+                    if let Err(e) = t.set_icon(Some(icon)) {
                         tracing::warn!(error = %e, "failed to update tray icon");
                     }
+                    // Template rendering must be re-asserted after set_icon.
+                    t.set_icon_as_template(is_template);
                     if let Err(e) = t.set_tooltip(Some(&tooltip)) {
                         tracing::warn!(error = %e, "failed to update tray tooltip");
                     }
@@ -120,6 +147,12 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboar
                 } else if e.id == quit_id {
                     tracing::info!("tray: Quit selected, initiating shutdown");
                     cancel.cancel();
+                } else if let Some((_, mins)) =
+                    snooze_ids.iter().find(|(id, _)| e.id == *id)
+                {
+                    let until = chrono::Utc::now().timestamp_millis() + mins * 60_000;
+                    snooze_until_ms.store(until, Ordering::Relaxed);
+                    tracing::info!(minutes = mins, "tray: nudges snoozed");
                 }
             }
             Event::UserEvent(UserEvent::Shutdown) => {
@@ -147,22 +180,29 @@ fn open_dashboard(url: &str) {
     }
 }
 
-/// A 32x32 burnt-orange filled circle matching the ccube brand (`#F16A01`).
-/// Initial icon before the first state update arrives.
+/// Initial icon before the first state update arrives: unobtrusive template.
 fn brand_icon() -> Icon {
-    circle_icon([0xF1, 0x6A, 0x01])
+    circle_icon([0x00, 0x00, 0x00], 0xFF)
 }
 
-/// Icon for a focus state: warm orange focused, cool blue drifting, gray idle.
-fn state_icon(state: TrayState) -> Icon {
+/// Icon + template flag for a focus state.
+///
+/// Default (focused) is a *template* image: macOS draws it monochrome like
+/// every other status item — unobtrusive per Dieter Rams; on modern macOS a
+/// colored menu-bar item reads as an alert (mic/screen access). Color appears
+/// only when the state carries information: cool blue while drifting (the
+/// Aura palette), and idle dims to a faint template mark.
+fn state_icon(state: TrayState) -> (Icon, bool) {
     match state {
-        TrayState::Focused => circle_icon([0xF1, 0x6A, 0x01]),
-        TrayState::Drifting => circle_icon([0x4A, 0x90, 0xD8]),
-        TrayState::Idle => circle_icon([0x8E, 0x8E, 0x8E]),
+        TrayState::Focused => (circle_icon([0x00, 0x00, 0x00], 0xFF), true),
+        TrayState::Drifting => (circle_icon([0x4A, 0x90, 0xD8], 0xFF), false),
+        TrayState::Idle => (circle_icon([0x00, 0x00, 0x00], 0x59), true),
     }
 }
 
-fn circle_icon(rgb: [u8; 3]) -> Icon {
+/// A 32x32 filled circle. For template icons macOS uses only the alpha
+/// channel, so `alpha` controls how dimmed the mark renders.
+fn circle_icon(rgb: [u8; 3], alpha: u8) -> Icon {
     const SIZE: u32 = 32;
     let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
     let center = (SIZE as f32 - 1.0) / 2.0;
@@ -172,7 +212,7 @@ fn circle_icon(rgb: [u8; 3]) -> Icon {
             let dx = x as f32 - center;
             let dy = y as f32 - center;
             if dx * dx + dy * dy <= radius * radius {
-                rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 0xFF]);
+                rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], alpha]);
             } else {
                 rgba.extend_from_slice(&[0, 0, 0, 0]);
             }

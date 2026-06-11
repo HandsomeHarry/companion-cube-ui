@@ -184,11 +184,20 @@ async fn run_detector(state: &AppState, trigger: &str) {
         }
     }
 
-    // Send notification on Nudge
+    // Send notification on Nudge (unless snoozed from the tray — the
+    // decision is still recorded above either way)
     if output.decision == briefing::DetectorDecision::Nudge
         && let Some(ref msg) = output.nudge_message
     {
-        if let Some(id) = decision_id {
+        let snooze_until = state
+            .snooze_until_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if now_ms < snooze_until {
+            tracing::info!(
+                snooze_remaining_s = (snooze_until - now_ms) / 1000,
+                "nudge suppressed (snoozed from tray)"
+            );
+        } else if let Some(id) = decision_id {
             send_nudge_notification(id, msg);
         } else {
             tracing::warn!("nudge triggered but no decision_id available, skipping notification");
@@ -232,7 +241,32 @@ fn send_nudge_notification(decision_id: i64, message: &str) {
                 Err(e) => tracing::warn!(error = %e, "failed to send nudge notification"),
             }
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        {
+            // Native notification via osascript. The message is passed as an
+            // argv item (never interpolated into the script) so LLM-generated
+            // text cannot inject AppleScript. Copy follows the design spec's
+            // nudge anatomy: app name as title, the LLM's one sentence as body.
+            let _ = id_str; // decision id lives in the dashboard, not the banner
+            let script = concat!(
+                "on run argv\n",
+                "display notification (item 1 of argv) ",
+                "with title \"Companion Cube\" sound name \"Glass\"\n",
+                "end run"
+            );
+            match std::process::Command::new("osascript")
+                .args(["-e", script, &msg])
+                .output()
+            {
+                Ok(o) if o.status.success() => tracing::debug!("nudge notification sent"),
+                Ok(o) => tracing::warn!(
+                    stderr = %String::from_utf8_lossy(&o.stderr),
+                    "osascript notification failed"
+                ),
+                Err(e) => tracing::warn!(error = %e, "failed to send nudge notification"),
+            }
+        }
+        #[cfg(all(not(windows), not(target_os = "macos")))]
         {
             let title = format!("Companion Cube #{id_str}");
             match std::process::Command::new("notify-send")

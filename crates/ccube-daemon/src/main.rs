@@ -134,6 +134,7 @@ fn main() -> Result<()> {
     let cancel = CancellationToken::new();
     let detector_trigger = Arc::new(Notify::new());
     let cached_summaries = Arc::new(tokio::sync::RwLock::new(None));
+    let snooze_until_ms = Arc::new(std::sync::atomic::AtomicI64::new(0));
 
     let state = Arc::new(AppState {
         data_root: root,
@@ -146,6 +147,7 @@ fn main() -> Result<()> {
         curator_mutex: Arc::new(tokio::sync::Mutex::new(())),
         curator_schedule_hour,
         cached_summaries,
+        snooze_until_ms: snooze_until_ms.clone(),
     });
 
     // Resolve the loopback port (override with CCUBE_PORT; consistent with the
@@ -179,7 +181,7 @@ fn main() -> Result<()> {
         .context("failed to spawn tokio runtime thread")?;
 
     // 11. Run the tray event loop on the main thread (never returns).
-    tray::run(event_loop, cancel, dashboard_url)
+    tray::run(event_loop, cancel, dashboard_url, snooze_until_ms)
 }
 
 /// Drive all async subsystems: capture loop, scheduler, summarize loop, and the

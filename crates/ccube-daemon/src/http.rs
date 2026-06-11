@@ -37,6 +37,10 @@ pub struct AppState {
     pub curator_schedule_hour: u32,
     /// Cached LLM-generated session summaries (auto-refreshed every 5 min).
     pub cached_summaries: Arc<tokio::sync::RwLock<Option<SummariesResponse>>>,
+    /// Epoch-ms until which nudge notifications are suppressed (tray snooze).
+    /// Detection keeps running and decisions are still recorded; only the
+    /// banner is held back. 0 = not snoozed.
+    pub snooze_until_ms: Arc<std::sync::atomic::AtomicI64>,
 }
 
 impl AppState {
