@@ -460,22 +460,60 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
                     None
                 };
 
+                // AFK accounting. idle_start arrives backdated to the actual
+                // idle onset; the open focus event's clock stops there —
+                // otherwise a lunch break (or a night) counts as app time.
+                if kind == "idle_start"
+                    && let Some(&(focus_id, focus_ts)) = last_event.get("app_focus")
+                {
+                    let attended = ts - focus_ts;
+                    if attended > 0 {
+                        let _ = db::update_event_duration(&conn, focus_id, attended);
+                    }
+                    // Remove so the post-break focus event doesn't overwrite
+                    // the capped duration with the full idle-spanning gap.
+                    last_event.remove("app_focus");
+                    last_focus_context = None;
+                }
+                // The away period's length lands on the idle_start row, so
+                // the UI can say "Away · 42m" instead of a bare sentinel.
+                if kind == "idle_end"
+                    && let Some(&(idle_id, idle_ts)) = last_event.get("idle_start")
+                {
+                    let away = ts - idle_ts;
+                    if away > 0 {
+                        let _ = db::update_event_duration(&conn, idle_id, away);
+                    }
+                    last_event.remove("idle_start");
+                }
+
                 match db::insert_event(&conn, ts, kind, app, title, mode) {
                     Ok(row_id) => {
                         if let Some(&(prev_id, prev_ts)) = last_event.get(kind) {
                             let duration = ts - prev_ts;
                             if duration > 0 {
                                 let _ = db::update_event_duration(&conn, prev_id, duration);
-
-                                // OCR gate: on app_focus switch with >5s session
-                                if kind == "app_focus" && duration > 5_000 {
-                                    let data_dir = state.data_root.data_dir.clone();
-                                    tokio::spawn(async move {
-                                        if let Err(e) = run_ocr_for_event(&data_dir, prev_id).await {
-                                            tracing::warn!(error = %e, event_id = prev_id, "OCR failed");
-                                        }
-                                    });
-                                }
+                            }
+                        }
+                        // Screenshot the screen we're ON now and attach OCR +
+                        // vision to the event that just STARTED — the previous
+                        // event's window is already gone. (Attribution to the
+                        // outgoing event described the wrong app.) Gate on the
+                        // previous session length to avoid rapid-switch storms.
+                        if kind == "app_focus" {
+                            let prev_long_enough = last_event
+                                .get("app_focus")
+                                .is_none_or(|&(_, prev_ts)| ts - prev_ts > 5_000);
+                            if prev_long_enough {
+                                let data_dir = state.data_root.data_dir.clone();
+                                tokio::spawn(async move {
+                                    // Let the new window finish rendering
+                                    // before we photograph it.
+                                    tokio::time::sleep(Duration::from_secs(2)).await;
+                                    if let Err(e) = run_ocr_for_event(&data_dir, row_id).await {
+                                        tracing::warn!(error = %e, event_id = row_id, "OCR failed");
+                                    }
+                                });
                             }
                         }
                         last_event.insert(kind.to_string(), (row_id, ts));

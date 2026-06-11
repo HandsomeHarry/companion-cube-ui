@@ -23,6 +23,10 @@ use tokio::sync::mpsc;
 /// Idle threshold: 5 minutes in seconds.
 const IDLE_THRESHOLD_SECS: f64 = 300.0;
 
+/// A poll-to-poll gap beyond this means the machine was asleep
+/// (polls run every 5s; even heavy load won't stall one this long).
+const SLEEP_GAP_MS: i64 = 60_000;
+
 /// Poll interval for title/URL/idle: 5 seconds.
 const POLL_INTERVAL_SECS: f64 = 5.0;
 
@@ -44,6 +48,9 @@ struct CaptureState {
     has_ax_permission: bool,
     has_screen_permission: bool,
     ax_warned: bool,
+    /// Wall-clock of the previous poll tick — a large jump means the
+    /// machine slept, which the idle check cannot see (timers freeze).
+    last_poll_ms: i64,
 }
 
 #[derive(Default)]
@@ -120,6 +127,7 @@ fn capture_thread_main(tx: mpsc::Sender<ActivityEvent>) {
             has_ax_permission: has_ax,
             has_screen_permission: has_screen,
             ax_warned: !has_ax,
+            last_poll_ms: 0,
         });
     });
 
@@ -289,16 +297,75 @@ fn poll_title_url_and_idle() {
             state.ax_warned = true;
         }
 
+        // Sleep detection: timers freeze during system sleep, so the idle
+        // check never fires across a closed lid — a night becomes app time.
+        // A poll-to-poll wall-clock jump is the sleep signal: emit a
+        // synthetic away period covering it.
+        if state.last_poll_ms > 0 && !state.idle_active {
+            let gap = ts - state.last_poll_ms;
+            if gap > SLEEP_GAP_MS {
+                try_send_event(&state.tx, ActivityEvent::IdleStart { ts: state.last_poll_ms });
+                try_send_event(&state.tx, ActivityEvent::IdleEnd { ts });
+                state.last_app.clear(); // re-emit focus, fresh clock
+            }
+        }
+        state.last_poll_ms = ts;
+
         // Idle check
         let idle_secs = unsafe { get_idle_seconds() };
         if idle_secs >= IDLE_THRESHOLD_SECS && !state.idle_active {
-            try_send_event(&state.tx, ActivityEvent::IdleStart { ts });
-            state.idle_active = true;
+            // Watching a video produces no input but is not AFK — and it's
+            // exactly the activity drift detection must keep seeing. Media
+            // players hold display-sleep assertions; respect them.
+            if !display_sleep_prevented() {
+                // The user left when input stopped, not when we noticed.
+                let onset_ts = ts - (idle_secs * 1000.0) as i64;
+                try_send_event(&state.tx, ActivityEvent::IdleStart { ts: onset_ts });
+                state.idle_active = true;
+            }
         } else if idle_secs < IDLE_THRESHOLD_SECS && state.idle_active {
             try_send_event(&state.tx, ActivityEvent::IdleEnd { ts });
             state.idle_active = false;
+            // Force the next poll to re-emit AppFocusChanged, opening a
+            // fresh focus event so post-break time starts a clean clock.
+            state.last_app.clear();
         }
     });
+}
+
+/// True while any process holds a display-sleep-prevention assertion —
+/// the standard "media is playing" signal (video players, presentations).
+/// Reads assertion *counts* only; no process inspection, no content.
+#[link(name = "IOKit", kind = "framework")]
+unsafe extern "C" {
+    fn IOPMCopyAssertionsStatus(
+        assertions_status: *mut core_foundation_sys::dictionary::CFDictionaryRef,
+    ) -> i32;
+}
+
+fn display_sleep_prevented() -> bool {
+    use core_foundation::base::TCFType;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_foundation_sys::dictionary::CFDictionaryRef;
+
+    let mut dict_ref: CFDictionaryRef = std::ptr::null();
+    let kr = unsafe { IOPMCopyAssertionsStatus(&mut dict_ref) };
+    if kr != 0 || dict_ref.is_null() {
+        return false;
+    }
+    let dict: CFDictionary<CFString, CFNumber> =
+        unsafe { CFDictionary::wrap_under_create_rule(dict_ref as _) };
+
+    ["PreventUserIdleDisplaySleep", "NoDisplaySleepAssertion"]
+        .iter()
+        .any(|key| {
+            dict.find(CFString::new(key))
+                .and_then(|n| n.to_i64())
+                .unwrap_or(0)
+                > 0
+        })
 }
 
 // ---------------------------------------------------------------------------

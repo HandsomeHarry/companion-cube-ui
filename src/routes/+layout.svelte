@@ -155,7 +155,17 @@
 
   // Events not in any group — captured after last summarize
   $: groupedEventIds = new Set(displayGroups.flatMap(g => g.events.map(e => e.id)));
-  $: ungroupedEvents = filteredEvents.filter(e => !groupedEventIds.has(e.id) && e.kind === 'app_focus');
+  // Away periods (idle_start rows carry the away duration) belong in the
+  // timeline: honest time accounting means breaks are visible seams.
+  $: ungroupedEvents = filteredEvents.filter(
+    e => !groupedEventIds.has(e.id) && (e.kind === 'app_focus' || e.kind === 'idle_start')
+  );
+
+  /** Human label for an event row. */
+  function eventLabel(e: EventRow): string {
+    if (e.kind === 'idle_start') return 'Away';
+    return e.app ?? e.kind;
+  }
 
   // Time range navigation
   let viewMode: 'day' | 'week' | 'month' = 'day';
@@ -589,12 +599,14 @@
                     tabindex="0"
                   >
                     <span class="tl-item__bullet">·</span>
-                    <span class="tl-item__app">{event.app ?? event.kind}</span>
+                    <span class="tl-item__app" class:away={event.kind === 'idle_start'}>{eventLabel(event)}</span>
                     <span class="tl-item__title">– {cleanDesc(event.llm_desc, cleanDesc(event.vision_desc, event.title))}</span>
                     {#if event.duration_ms}
                       <span class="tl-item__dur">{formatDuration(event.duration_ms)}</span>
                     {/if}
-                    <span class="tl-item__handle" class:active-drag={isDragging && dragState?.event.id === event.id} role="button" tabindex="-1" on:mousedown={(e) => startDrag(e, event, null)} on:click|stopPropagation title="Drag into a session">≡</span>
+                    {#if event.kind === 'app_focus'}
+                      <span class="tl-item__handle" class:active-drag={isDragging && dragState?.event.id === event.id} role="button" tabindex="-1" on:mousedown={(e) => startDrag(e, event, null)} on:click|stopPropagation title="Drag into a session">≡</span>
+                    {/if}
                   </div>
                 {/each}
               </div>
@@ -660,7 +672,7 @@
                         tabindex="0"
                       >
                         <span class="tl-item__bullet">·</span>
-                        <span class="tl-item__app">{event.app ?? event.kind}</span>
+                        <span class="tl-item__app" class:away={event.kind === 'idle_start'}>{eventLabel(event)}</span>
                         <span class="tl-item__title">– {cleanDesc(event.llm_desc, cleanDesc(event.vision_desc, event.title))}</span>
                         {#if event.duration_ms}
                           <span class="tl-item__dur">{formatDuration(event.duration_ms)}</span>
@@ -689,7 +701,7 @@
             <div class="tl-row">
               <span class="tl-time">{formatTime(event.ts)}</span>
               <span class="tl-dot" style="background: {event.kind === 'app_focus' ? 'var(--brand-orange)' : event.kind === 'idle_start' ? '#aaa' : '#888'}"></span>
-              <span class="tl-app">{event.app ?? event.kind}</span>
+              <span class="tl-app" class:away={event.kind === 'idle_start'}>{eventLabel(event)}</span>
               <span class="tl-detail">– {cleanDesc(event.llm_desc, cleanDesc(event.vision_desc, event.title))}</span>
               {#if event.duration_ms}
                 <span class="tl-dur">{formatDuration(event.duration_ms)}</span>
@@ -1184,6 +1196,14 @@
 
   .tl-item__bullet { color: var(--ink-faint); font-size: 16px; }
   .tl-item__app { font-weight: 600; }
+
+  /* Away rows read as seams, not activities */
+  .tl-item__app.away,
+  .tl-app.away {
+    font-weight: 400;
+    font-style: italic;
+    color: var(--ink-faint);
+  }
 
   .tl-item__title {
     color: var(--ink-soft);

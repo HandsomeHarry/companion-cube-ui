@@ -862,6 +862,37 @@ async fn set_llm_config(
 /// Events shorter than this are excluded from grouping (sub-second noise).
 const SUMMARIZE_MIN_DURATION_MS: i64 = 0;
 
+/// A gap longer than this between consecutive events starts a new segment
+/// even without an idle marker (daemon offline, machine asleep).
+const MAX_SESSION_GAP_MS: i64 = 15 * 60 * 1000;
+
+/// Split a time-ordered event list into segments at break markers
+/// (idle_start timestamps) and at long gaps. Sessions never span a segment
+/// boundary: whatever follows a break is a new activity by definition, so
+/// no LLM judgment is needed — or trusted — across one.
+fn split_at_breaks(
+    events: Vec<ccube_core::db::EventRow>,
+    breaks: &[i64],
+    max_gap_ms: i64,
+) -> Vec<Vec<ccube_core::db::EventRow>> {
+    let mut segments: Vec<Vec<ccube_core::db::EventRow>> = Vec::new();
+    let mut current: Vec<ccube_core::db::EventRow> = Vec::new();
+    for event in events {
+        if let Some(prev) = current.last() {
+            let prev_end = prev.ts + prev.duration_ms.unwrap_or(0);
+            let break_between = breaks.iter().any(|&b| b > prev.ts && b <= event.ts);
+            if break_between || event.ts.saturating_sub(prev_end) > max_gap_ms {
+                segments.push(std::mem::take(&mut current));
+            }
+        }
+        current.push(event);
+    }
+    if !current.is_empty() {
+        segments.push(current);
+    }
+    segments
+}
+
 /// Maximum tokens for LLM response. Higher to accommodate 200 events with descriptions.
 const SUMMARIZE_MAX_TOKENS: u32 = 32768;
 /// LLM temperature for summarization.
@@ -1047,7 +1078,7 @@ Rules:
 - Group consecutive events that belong to the same activity
 - Use ALL available context: app name, window title, OCR screen text, and vision description
 - Include ALL event numbers, do not skip any
-- Events are listed newest first
+- Events are listed oldest first
 {}Events:
 {}
 
@@ -1091,6 +1122,15 @@ pub async fn run_summarize(
 
     let all_events = db::query_recent_events(&conn, since).map_err(ApiError::internal)?;
 
+    // Away periods and long gaps are hard session boundaries: whatever the
+    // user does after lunch is a new session, no matter how similar. Collect
+    // break markers before filtering down to groupable rows.
+    let break_ts: Vec<i64> = all_events
+        .iter()
+        .filter(|e| e.kind == "idle_start")
+        .map(|e| e.ts)
+        .collect();
+
     // Only unassigned app_focus events get grouped; events in sessions
     // (pinned or fresh) are already owned.
     let events: Vec<_> = all_events
@@ -1129,119 +1169,153 @@ pub async fn run_summarize(
         })
         .collect();
 
-    // Batch events into chunks and call LLM for each batch
     const BATCH_SIZE: usize = 40;
-    let mut all_llm_groups: Vec<LlmSessionGroup> = Vec::new();
+    let segments = split_at_breaks(events, &break_ts, MAX_SESSION_GAP_MS);
 
-    for chunk in events.chunks(BATCH_SIZE) {
-        let prompt = build_summarize_prompt(chunk, &corrections);
-
-        let response = state
-            .llm
-            .complete(&prompt, "", SUMMARIZE_MAX_TOKENS, SUMMARIZE_TEMPERATURE)
-            .await
-            .map_err(|e| ApiError::internal(format!("LLM call failed: {e}")))?;
-
-        let content = response.content.trim();
-        let json_str = extract_json(content);
-
-        #[derive(Deserialize)]
-        struct SummarizeOutput {
-            groups: Vec<LlmSessionGroup>,
-        }
-
-        match serde_json::from_str::<SummarizeOutput>(&json_str) {
-            Ok(output) => all_llm_groups.extend(output.groups),
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to parse LLM batch response, skipping batch");
-            }
-        }
+    // Phase 1 — LLM, with no DB lock held (a transaction across minute-long
+    // LLM awaits would block the capture loop's writes). Indices in each
+    // prompt are 1-based *within that chunk*; resolving them against the
+    // global event list mislabeled every chunk after the first — the source
+    // of the wrong per-event descriptions in History.
+    struct PendingSession {
+        title: String,
+        distraction: bool,
+        /// (event_id, ts, description)
+        members: Vec<(i64, i64, Option<String>)>,
     }
+    // Per segment: proposed sessions + events the LLM skipped.
+    let mut pending: Vec<(Vec<PendingSession>, Vec<(i64, i64)>)> = Vec::new();
 
-    // Persist LLM groups as session rows and assign events to them — inside
-    // one transaction: a 100-event pass is otherwise 200+ autocommit fsyncs,
-    // and a crash mid-loop would leave a half-assigned group behind.
-    let tx = conn.unchecked_transaction().map_err(ApiError::internal)?;
-    let mut used_event_ids = std::collections::HashSet::<i64>::new();
-    let mut new_session_bounds: Vec<(i64, i64, i64)> = Vec::new(); // (session_id, lo, hi)
+    for segment in &segments {
+        let mut sessions: Vec<PendingSession> = Vec::new();
+        let mut used = std::collections::HashSet::<i64>::new();
 
-    for group in &all_llm_groups {
-        // Resolve 1-based LLM indices to (event, description) pairs first.
-        let mut members: Vec<(&ccube_core::db::EventRow, Option<&String>)> = Vec::new();
-        for &llm_id in &group.event_ids {
-            if llm_id < 1 {
-                continue;
+        for chunk in segment.chunks(BATCH_SIZE) {
+            let prompt = build_summarize_prompt(chunk, &corrections);
+
+            let response = state
+                .llm
+                .complete(&prompt, "", SUMMARIZE_MAX_TOKENS, SUMMARIZE_TEMPERATURE)
+                .await
+                .map_err(|e| ApiError::internal(format!("LLM call failed: {e}")))?;
+
+            let json_str = extract_json(response.content.trim());
+
+            #[derive(Deserialize)]
+            struct SummarizeOutput {
+                groups: Vec<LlmSessionGroup>,
             }
-            let idx = (llm_id - 1) as usize;
-            if idx < events.len() {
-                let event = &events[idx];
-                if used_event_ids.insert(event.id) {
-                    members.push((event, group.descriptions.get(&llm_id.to_string())));
+
+            let output = match serde_json::from_str::<SummarizeOutput>(&json_str) {
+                Ok(o) => o,
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to parse LLM batch response, skipping batch");
+                    continue;
+                }
+            };
+
+            for group in output.groups {
+                let mut members = Vec::new();
+                for &llm_id in &group.event_ids {
+                    if llm_id < 1 {
+                        continue;
+                    }
+                    let idx = (llm_id - 1) as usize;
+                    if idx < chunk.len() {
+                        let event = &chunk[idx];
+                        if used.insert(event.id) {
+                            members.push((
+                                event.id,
+                                event.ts,
+                                group.descriptions.get(&llm_id.to_string()).cloned(),
+                            ));
+                        }
+                    }
+                }
+                if !members.is_empty() {
+                    sessions.push(PendingSession {
+                        title: group.title,
+                        distraction: group.distraction,
+                        members,
+                    });
                 }
             }
         }
-        if members.is_empty() {
-            continue;
-        }
 
-        let lo = members.iter().map(|(e, _)| e.ts).min().unwrap_or(now);
-        let hi = members.iter().map(|(e, _)| e.ts).max().unwrap_or(now);
-        let sid = db::create_session(
-            &tx,
-            &range_key,
-            &group.title,
-            lo,
-            hi,
-            group.distraction,
-            "llm",
-        )
-        .map_err(ApiError::internal)?;
-
-        for (event, desc) in members {
-            db::assign_event_session(&tx, event.id, Some(sid))
-                .map_err(ApiError::internal)?;
-            if let Some(desc) = desc {
-                db::update_event_llm_desc(&tx, event.id, desc)
-                    .map_err(ApiError::internal)?;
-            }
-        }
-        new_session_bounds.push((sid, lo, hi));
+        let stragglers: Vec<(i64, i64)> = segment
+            .iter()
+            .filter(|e| !used.contains(&e.id))
+            .map(|e| (e.id, e.ts))
+            .collect();
+        pending.push((sessions, stragglers));
     }
 
-    // Stragglers the LLM skipped: attach to the nearest session created in
-    // this pass (never to a pinned session — those belong to the user).
-    if !new_session_bounds.is_empty() {
-        for event in events.iter().filter(|e| !used_event_ids.contains(&e.id)) {
-            let best = new_session_bounds
-                .iter()
-                .min_by_key(|(_, lo, hi)| {
-                    if event.ts >= *lo && event.ts <= *hi {
-                        0
-                    } else if event.ts < *lo {
-                        lo - event.ts
-                    } else {
-                        event.ts - hi
-                    }
-                })
-                .map(|(sid, _, _)| *sid);
-            if let Some(sid) = best {
-                db::assign_event_session(&tx, event.id, Some(sid))
-                    .map_err(ApiError::internal)?;
-            }
-        }
-    } else if !events.is_empty() {
-        // LLM produced nothing usable: one fallback session so the events
-        // aren't re-sent to the LLM every 5 minutes.
-        let lo = events.iter().map(|e| e.ts).min().unwrap_or(now);
-        let hi = events.iter().map(|e| e.ts).max().unwrap_or(now);
-        let sid = db::create_session(&tx, &range_key, "Activity", lo, hi, false, "llm")
+    // Phase 2 — persist everything in one transaction (fast writes only):
+    // a 100-event pass is otherwise 200+ autocommit fsyncs, and a crash
+    // mid-loop would leave a half-assigned group behind.
+    let tx = conn.unchecked_transaction().map_err(ApiError::internal)?;
+    for (sessions, stragglers) in &pending {
+        let mut bounds: Vec<(i64, i64, i64)> = Vec::new(); // (session_id, lo, hi)
+
+        for s in sessions {
+            let lo = s.members.iter().map(|(_, ts, _)| *ts).min().unwrap_or(now);
+            let hi = s.members.iter().map(|(_, ts, _)| *ts).max().unwrap_or(now);
+            let sid = db::create_session(
+                &tx,
+                &range_key,
+                &s.title,
+                lo,
+                hi,
+                s.distraction,
+                "llm",
+            )
             .map_err(ApiError::internal)?;
-        for event in &events {
-            db::assign_event_session(&tx, event.id, Some(sid))
+
+            for (event_id, _, desc) in &s.members {
+                db::assign_event_session(&tx, *event_id, Some(sid))
+                    .map_err(ApiError::internal)?;
+                if let Some(desc) = desc {
+                    db::update_event_llm_desc(&tx, *event_id, desc)
+                        .map_err(ApiError::internal)?;
+                }
+            }
+            bounds.push((sid, lo, hi));
+        }
+
+        // Stragglers attach to the nearest session created in this segment —
+        // never across a break, never to a pinned session.
+        if !bounds.is_empty() {
+            for &(event_id, ts) in stragglers {
+                let best = bounds
+                    .iter()
+                    .min_by_key(|(_, lo, hi)| {
+                        if ts >= *lo && ts <= *hi {
+                            0
+                        } else if ts < *lo {
+                            lo - ts
+                        } else {
+                            ts - hi
+                        }
+                    })
+                    .map(|(sid, _, _)| *sid);
+                if let Some(sid) = best {
+                    db::assign_event_session(&tx, event_id, Some(sid))
+                        .map_err(ApiError::internal)?;
+                }
+            }
+        } else if !stragglers.is_empty() {
+            // The LLM produced nothing usable for this segment: one fallback
+            // session so its events aren't re-sent every 5 minutes.
+            let lo = stragglers.iter().map(|&(_, ts)| ts).min().unwrap_or(now);
+            let hi = stragglers.iter().map(|&(_, ts)| ts).max().unwrap_or(now);
+            let sid = db::create_session(&tx, &range_key, "Activity", lo, hi, false, "llm")
                 .map_err(ApiError::internal)?;
+            for &(event_id, _) in stragglers {
+                db::assign_event_session(&tx, event_id, Some(sid))
+                    .map_err(ApiError::internal)?;
+            }
         }
     }
-
     tx.commit().map_err(ApiError::internal)?;
 
     load_sessions_response(&conn, &range_key)
@@ -1441,4 +1515,67 @@ async fn rename_session_handler(
         status: "ok".to_string(),
         session_id: id,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ev(id: i64, ts: i64, dur: i64) -> ccube_core::db::EventRow {
+        ccube_core::db::EventRow {
+            id,
+            ts,
+            kind: "app_focus".to_string(),
+            app: Some("App".to_string()),
+            title: None,
+            duration_ms: Some(dur),
+            mode: None,
+            ocr_text: None,
+            vision_desc: None,
+            session_id: None,
+            llm_desc: None,
+        }
+    }
+
+    #[test]
+    fn split_contiguous_stays_whole() {
+        let segs = split_at_breaks(vec![ev(1, 0, 1000), ev(2, 1000, 1000)], &[], 900_000);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].len(), 2);
+    }
+
+    #[test]
+    fn split_at_idle_marker() {
+        // idle began at ts 5000, between the two events
+        let segs = split_at_breaks(
+            vec![ev(1, 0, 1000), ev(2, 600_000, 1000)],
+            &[5000],
+            i64::MAX,
+        );
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[0][0].id, 1);
+        assert_eq!(segs[1][0].id, 2);
+    }
+
+    #[test]
+    fn split_at_long_gap_without_marker() {
+        // 20-minute hole (daemon off / suspend), no idle row
+        let segs = split_at_breaks(
+            vec![ev(1, 0, 1000), ev(2, 1_201_000, 1000)],
+            &[],
+            900_000,
+        );
+        assert_eq!(segs.len(), 2);
+    }
+
+    #[test]
+    fn split_ignores_breaks_outside_range() {
+        // idle marker before the first event must not split anything
+        let segs = split_at_breaks(
+            vec![ev(1, 10_000, 1000), ev(2, 12_000, 1000)],
+            &[5000],
+            900_000,
+        );
+        assert_eq!(segs.len(), 1);
+    }
 }
