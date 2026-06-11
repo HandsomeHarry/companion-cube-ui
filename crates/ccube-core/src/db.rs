@@ -274,6 +274,17 @@ pub fn last_event_of_kind(conn: &Connection, kind: &str) -> Result<Option<EventR
     }
 }
 
+/// Fetch a single event by ID.
+pub fn get_event(conn: &Connection, id: i64) -> Result<Option<EventRow>> {
+    let mut stmt =
+        conn.prepare(&format!("SELECT {EVENT_COLS} FROM events WHERE id = ?1"))?;
+    let mut rows = stmt.query_map([id], map_event_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
 /// Return the most recent event regardless of kind, or None.
 pub fn last_event(conn: &Connection) -> Result<Option<EventRow>> {
     let mut stmt =
@@ -291,9 +302,12 @@ pub fn prune_events(conn: &Connection, before_ts: i64) -> Result<u64> {
         "DELETE FROM events WHERE ts < ?1",
         rusqlite::params![before_ts],
     )?;
-    // Sessions whose events were all pruned are dead weight.
+    // Unpinned sessions whose events were all pruned are dead weight.
+    // Pinned ones are kept even when empty — same policy as
+    // refresh_session_bounds: the user made them, only the user (or a
+    // reorganize they trigger) removes them.
     conn.execute(
-        "DELETE FROM sessions WHERE id NOT IN
+        "DELETE FROM sessions WHERE pinned = 0 AND id NOT IN
            (SELECT DISTINCT session_id FROM events WHERE session_id IS NOT NULL)",
         [],
     )?;
@@ -343,24 +357,28 @@ pub fn create_session(
     Ok(conn.last_insert_rowid())
 }
 
+const SESSION_COLS: &str =
+    "id, range_key, label, start_ts, end_ts, distraction, pinned, created_by";
+
+fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
+    Ok(SessionRow {
+        id: row.get(0)?,
+        range_key: row.get(1)?,
+        label: row.get(2)?,
+        start_ts: row.get(3)?,
+        end_ts: row.get(4)?,
+        distraction: row.get(5)?,
+        pinned: row.get(6)?,
+        created_by: row.get(7)?,
+    })
+}
+
 /// List sessions for a range key, newest first.
 pub fn list_sessions(conn: &Connection, range_key: &str) -> Result<Vec<SessionRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, range_key, label, start_ts, end_ts, distraction, pinned, created_by
-         FROM sessions WHERE range_key = ?1 ORDER BY end_ts DESC",
-    )?;
-    let rows = stmt.query_map([range_key], |row| {
-        Ok(SessionRow {
-            id: row.get(0)?,
-            range_key: row.get(1)?,
-            label: row.get(2)?,
-            start_ts: row.get(3)?,
-            end_ts: row.get(4)?,
-            distraction: row.get(5)?,
-            pinned: row.get(6)?,
-            created_by: row.get(7)?,
-        })
-    })?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SESSION_COLS} FROM sessions WHERE range_key = ?1 ORDER BY end_ts DESC",
+    ))?;
+    let rows = stmt.query_map([range_key], map_session_row)?;
     let mut results = Vec::new();
     for row in rows {
         results.push(row?);
@@ -370,22 +388,9 @@ pub fn list_sessions(conn: &Connection, range_key: &str) -> Result<Vec<SessionRo
 
 /// Fetch a single session by ID.
 pub fn get_session(conn: &Connection, id: i64) -> Result<Option<SessionRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, range_key, label, start_ts, end_ts, distraction, pinned, created_by
-         FROM sessions WHERE id = ?1",
-    )?;
-    let mut rows = stmt.query_map([id], |row| {
-        Ok(SessionRow {
-            id: row.get(0)?,
-            range_key: row.get(1)?,
-            label: row.get(2)?,
-            start_ts: row.get(3)?,
-            end_ts: row.get(4)?,
-            distraction: row.get(5)?,
-            pinned: row.get(6)?,
-            created_by: row.get(7)?,
-        })
-    })?;
+    let mut stmt =
+        conn.prepare(&format!("SELECT {SESSION_COLS} FROM sessions WHERE id = ?1"))?;
+    let mut rows = stmt.query_map([id], map_session_row)?;
     match rows.next() {
         Some(row) => Ok(Some(row?)),
         None => Ok(None),
@@ -836,6 +841,13 @@ fn init_events_db(data_dir: &Path) -> Result<()> {
     // Migration: session membership + per-event LLM description
     let _ = conn.execute("ALTER TABLE events ADD COLUMN session_id INTEGER", []);
     let _ = conn.execute("ALTER TABLE events ADD COLUMN llm_desc TEXT", []);
+    // After the ALTER (the column must exist before it can be indexed):
+    // query_events_by_session and refresh_session_bounds hit this on every
+    // summaries poll and every assignment.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)",
+        [],
+    )?;
     Ok(())
 }
 
@@ -1001,6 +1013,37 @@ mod tests {
         assign_event_session(&conn, e2, Some(s2)).unwrap();
         assert_eq!(get_session(&conn, s1).unwrap().unwrap().end_ts, 1000);
         assert_eq!(get_session(&conn, s2).unwrap().unwrap().start_ts, 9000);
+    }
+
+    #[test]
+    fn test_prune_keeps_pinned_sessions() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+
+        // Old event in a pinned session, old event in an unpinned one
+        let e1 = insert_event(&conn, 1000, "app_focus", Some("A"), None, None).unwrap();
+        let e2 = insert_event(&conn, 2000, "app_focus", Some("B"), None, None).unwrap();
+        let pinned = create_session(&conn, "day:x", "Mine", 1000, 1000, false, "user").unwrap();
+        let unpinned = create_session(&conn, "day:x", "LLM", 2000, 2000, false, "llm").unwrap();
+        assign_event_session(&conn, e1, Some(pinned)).unwrap();
+        assign_event_session(&conn, e2, Some(unpinned)).unwrap();
+
+        // Prune everything — both sessions are now empty
+        assert_eq!(prune_events(&conn, 10_000).unwrap(), 2);
+        // The user's session survives; the LLM's is dead weight and goes
+        assert!(get_session(&conn, pinned).unwrap().is_some());
+        assert!(get_session(&conn, unpinned).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_get_event_by_id() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+        let id = insert_event(&conn, 1000, "app_focus", Some("iTerm2"), None, None).unwrap();
+        assert_eq!(get_event(&conn, id).unwrap().unwrap().app.as_deref(), Some("iTerm2"));
+        assert!(get_event(&conn, id + 999).unwrap().is_none());
     }
 
     #[test]

@@ -255,6 +255,8 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
 
 /// POST /notify/test — send a sample nudge notification so users can check
 /// their notification settings without waiting for a real drift.
+/// Deliberately ignores the tray snooze: an explicit "test my setup" click
+/// should always produce a banner, or the user can't tell snooze from broken.
 async fn notify_test() -> Json<serde_json::Value> {
     crate::notify::send_nudge(0, "Notifications are working — this is what a nudge looks like.");
     Json(serde_json::json!({ "status": "sent" }))
@@ -1114,7 +1116,12 @@ pub async fn run_summarize(
         .unwrap_or_default()
         .into_iter()
         .filter_map(|c| {
-            if c.user_verdict.starts_with("group_reassign") {
+            // Both moves and renames teach the grouping LLM: reassigns show
+            // which events belong together, renames show the user's naming
+            // taste for future titles.
+            if c.user_verdict.starts_with("group_reassign")
+                || c.user_verdict.starts_with("group_rename")
+            {
                 Some(c.user_verdict)
             } else {
                 None
@@ -1151,7 +1158,10 @@ pub async fn run_summarize(
         }
     }
 
-    // Persist LLM groups as session rows and assign events to them.
+    // Persist LLM groups as session rows and assign events to them — inside
+    // one transaction: a 100-event pass is otherwise 200+ autocommit fsyncs,
+    // and a crash mid-loop would leave a half-assigned group behind.
+    let tx = conn.unchecked_transaction().map_err(ApiError::internal)?;
     let mut used_event_ids = std::collections::HashSet::<i64>::new();
     let mut new_session_bounds: Vec<(i64, i64, i64)> = Vec::new(); // (session_id, lo, hi)
 
@@ -1177,7 +1187,7 @@ pub async fn run_summarize(
         let lo = members.iter().map(|(e, _)| e.ts).min().unwrap_or(now);
         let hi = members.iter().map(|(e, _)| e.ts).max().unwrap_or(now);
         let sid = db::create_session(
-            &conn,
+            &tx,
             &range_key,
             &group.title,
             lo,
@@ -1188,10 +1198,10 @@ pub async fn run_summarize(
         .map_err(ApiError::internal)?;
 
         for (event, desc) in members {
-            db::assign_event_session(&conn, event.id, Some(sid))
+            db::assign_event_session(&tx, event.id, Some(sid))
                 .map_err(ApiError::internal)?;
             if let Some(desc) = desc {
-                db::update_event_llm_desc(&conn, event.id, desc)
+                db::update_event_llm_desc(&tx, event.id, desc)
                     .map_err(ApiError::internal)?;
             }
         }
@@ -1215,7 +1225,7 @@ pub async fn run_summarize(
                 })
                 .map(|(sid, _, _)| *sid);
             if let Some(sid) = best {
-                db::assign_event_session(&conn, event.id, Some(sid))
+                db::assign_event_session(&tx, event.id, Some(sid))
                     .map_err(ApiError::internal)?;
             }
         }
@@ -1224,13 +1234,15 @@ pub async fn run_summarize(
         // aren't re-sent to the LLM every 5 minutes.
         let lo = events.iter().map(|e| e.ts).min().unwrap_or(now);
         let hi = events.iter().map(|e| e.ts).max().unwrap_or(now);
-        let sid = db::create_session(&conn, &range_key, "Activity", lo, hi, false, "llm")
+        let sid = db::create_session(&tx, &range_key, "Activity", lo, hi, false, "llm")
             .map_err(ApiError::internal)?;
         for event in &events {
-            db::assign_event_session(&conn, event.id, Some(sid))
+            db::assign_event_session(&tx, event.id, Some(sid))
                 .map_err(ApiError::internal)?;
         }
     }
+
+    tx.commit().map_err(ApiError::internal)?;
 
     load_sessions_response(&conn, &range_key)
 }
@@ -1326,10 +1338,8 @@ async fn create_group_correction(
     let conn = db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
 
     // Resolve context before mutating, for a readable correction record.
-    let event = db::query_recent_events(&conn, 0)
+    let event = db::get_event(&conn, body.event_id)
         .map_err(ApiError::internal)?
-        .into_iter()
-        .find(|e| e.id == body.event_id)
         .ok_or_else(|| ApiError::bad_request("unknown event_id"))?;
     let from_session = match event.session_id {
         Some(sid) => db::get_session(&conn, sid).map_err(ApiError::internal)?,

@@ -451,25 +451,18 @@
     }
   }
 
+  // Sessions are day-scoped (range_key "day:..."). Organizing under a week:
+  // or month: key would create sessions invisible to the daily auto-pass and
+  // fight it over the same events, so Organize exists only in Day view —
+  // week/month are read-only aggregates.
   async function handleSummarize() {
-    let sinceMs: number | undefined;
-    let untilMs: number | undefined;
-    if (viewMode === 'day') {
-      const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
-      const end = addDays(start, 1);
-      sinceMs = start.getTime();
-      untilMs = end.getTime();
-    } else if (viewMode === 'week') {
-      sinceMs = startOfWeek(selectedDate).getTime();
-      untilMs = endOfWeek(selectedDate).getTime();
-    } else {
-      sinceMs = startOfMonth(selectedDate).getTime();
-      untilMs = endOfMonth(selectedDate).getTime();
-    }
-    const rk = dateCacheKey(selectedDate, viewMode);
+    if (viewMode !== 'day') return;
+    const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
+    const end = addDays(start, 1);
+    const rk = dateCacheKey(selectedDate, 'day');
     // ⚡ Organize = full pass: regroups the range but never touches pinned
     // (user-edited) sessions.
-    await triggerSummarize(sinceMs, untilMs, rk, true);
+    await triggerSummarize(start.getTime(), end.getTime(), rk, true);
   }
 
   function autofocus(el: HTMLInputElement) { el.focus(); }
@@ -558,9 +551,11 @@
           <button class="datenav__btn" aria-label="Next" on:click={goForward} disabled={!canGoFwd}>→</button>
         </div>
         <div class="bar__right">
-          <button class="btn btn--ghost" on:click={handleSummarize} disabled={$summarizing}>
-            {$summarizing ? 'Organizing...' : '⚡ Organize'}
-          </button>
+          {#if viewMode === 'day'}
+            <button class="btn btn--ghost" on:click={handleSummarize} disabled={$summarizing}>
+              {$summarizing ? 'Organizing...' : '⚡ Organize'}
+            </button>
+          {/if}
           <div class="seg">
             <button class="seg__opt" class:active={viewMode === 'day'} on:click={() => setViewMode('day')}>Day</button>
             <button class="seg__opt" class:active={viewMode === 'week'} on:click={() => setViewMode('week')}>Week</button>
