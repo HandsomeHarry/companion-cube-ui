@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use http::AppState;
-use tray::UserEvent;
+use tray::{TrayState, UserEvent};
 
 /// Synchronous entry point. macOS requires the tray/event loop on the main
 /// thread, so all async work runs on a dedicated tokio runtime thread while the
@@ -165,6 +165,7 @@ fn main() -> Result<()> {
     //     graceful shutdown it signals the event loop to exit.
     let rt_cancel = cancel.clone();
     let rt_state = state.clone();
+    let tray_proxy = event_loop.create_proxy();
     let _runtime_thread = std::thread::Builder::new()
         .name("ccube-tokio".into())
         .spawn(move || {
@@ -172,7 +173,7 @@ fn main() -> Result<()> {
                 .enable_all()
                 .build()
                 .expect("failed to build tokio runtime");
-            rt.block_on(run_runtime(rt_state, rt_cancel, port));
+            rt.block_on(run_runtime(rt_state, rt_cancel, port, tray_proxy));
             let _ = proxy.send_event(UserEvent::Shutdown);
         })
         .context("failed to spawn tokio runtime thread")?;
@@ -184,7 +185,12 @@ fn main() -> Result<()> {
 /// Drive all async subsystems: capture loop, scheduler, summarize loop, and the
 /// HTTP server. Returns only after a graceful shutdown (so the caller can tell
 /// the tray event loop to exit the process).
-async fn run_runtime(state: Arc<AppState>, cancel: CancellationToken, port: u16) {
+async fn run_runtime(
+    state: Arc<AppState>,
+    cancel: CancellationToken,
+    port: u16,
+    tray_proxy: tao::event_loop::EventLoopProxy<UserEvent>,
+) {
     // Capture loop
     let capture_cancel = cancel.clone();
     let capture_state = state.clone();
@@ -193,6 +199,13 @@ async fn run_runtime(state: Arc<AppState>, cancel: CancellationToken, port: u16)
             tracing::error!(error = %e, "capture loop failed");
         }
     });
+
+    // Tray state loop — mirrors focus state into the tray icon
+    let tray_state_handle = tokio::spawn(tray_state_loop(
+        state.clone(),
+        tray_proxy,
+        cancel.clone(),
+    ));
 
     // Scheduler
     let scheduler_handle = tokio::spawn(scheduler::run_scheduler(state.clone(), cancel.clone()));
@@ -263,6 +276,7 @@ async fn run_runtime(state: Arc<AppState>, cancel: CancellationToken, port: u16)
         let _ = scheduler_handle.await;
         let _ = summarize_handle.await;
         let _ = server_handle.await;
+        let _ = tray_state_handle.await;
     })
     .await;
 
@@ -279,6 +293,93 @@ async fn run_runtime(state: Arc<AppState>, cancel: CancellationToken, port: u16)
     let pid_file = state.data_root.data_dir.join("daemon.pid");
     let _ = std::fs::remove_file(&pid_file);
     tracing::info!("ccube-daemon stopped");
+}
+
+/// How recently a Nudge/Vault decision must have fired to color the tray as
+/// drifting. After this window without a new nudge, the icon warms back up.
+const DRIFT_WINDOW_MS: i64 = 10 * 60 * 1000;
+
+/// Poll the local DB every 5s and mirror the focus state into the tray icon
+/// (Mem Reduct-style: the icon is the status display). Sends only on change.
+async fn tray_state_loop(
+    state: Arc<AppState>,
+    proxy: tao::event_loop::EventLoopProxy<UserEvent>,
+    cancel: CancellationToken,
+) {
+    let mut last_sent: Option<(TrayState, String)> = None;
+    loop {
+        tokio::select! {
+            () = tokio::time::sleep(Duration::from_secs(5)) => {}
+            () = cancel.cancelled() => return,
+        }
+
+        let computed = match compute_tray_state(&state) {
+            Some(c) => c,
+            None => continue, // DB momentarily unavailable; keep last icon
+        };
+
+        if last_sent.as_ref() != Some(&computed) {
+            let (s, tip) = computed.clone();
+            tracing::info!(state = ?s, tooltip = %tip, "tray state changed, sending");
+            if proxy.send_event(UserEvent::State(s, tip)).is_err() {
+                return; // event loop is gone; we're shutting down
+            }
+            last_sent = Some(computed);
+        }
+    }
+}
+
+/// Read the latest capture/decision rows and classify the focus state.
+fn compute_tray_state(state: &AppState) -> Option<(TrayState, String)> {
+    let conn = db::open_events_db(&state.data_root.data_dir).ok()?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    let last_focus = db::last_event_of_kind(&conn, "app_focus").ok()?;
+    let last_idle_start = db::last_event_of_kind(&conn, "idle_start").ok()?;
+    let last_idle_end = db::last_event_of_kind(&conn, "idle_end").ok()?;
+    let last_decision = db::list_decisions(&conn, now_ms - DRIFT_WINDOW_MS, 1)
+        .ok()?
+        .into_iter()
+        .next();
+
+    Some(classify_tray_state(
+        last_focus.as_ref().and_then(|e| e.app.as_deref()),
+        last_focus.as_ref().map(|e| e.ts),
+        last_idle_start.map(|e| e.ts),
+        last_idle_end.map(|e| e.ts),
+        last_decision.map(|d| d.decision),
+    ))
+}
+
+/// Pure classification: idle wins if the newest idle_start is strictly after
+/// both the newest activity and idle_end (with a 1s margin — capture emits an
+/// idle probe at startup with the same timestamp as the first app_focus);
+/// otherwise a recent Nudge/Vault decision means drifting; otherwise focused.
+fn classify_tray_state(
+    focus_app: Option<&str>,
+    focus_ts: Option<i64>,
+    idle_start_ts: Option<i64>,
+    idle_end_ts: Option<i64>,
+    recent_decision: Option<String>,
+) -> (TrayState, String) {
+    let active_ts = focus_ts.unwrap_or(0).max(idle_end_ts.unwrap_or(0));
+    if idle_start_ts.unwrap_or(0) > active_ts + 1000 {
+        return (TrayState::Idle, "Companion Cube — idle".to_string());
+    }
+
+    let app = focus_app.unwrap_or("").to_string();
+    let suffix = if app.is_empty() {
+        String::new()
+    } else {
+        format!(" · {app}")
+    };
+
+    match recent_decision.as_deref() {
+        Some("Nudge") | Some("Vault") => {
+            (TrayState::Drifting, format!("Companion Cube — drifting{suffix}"))
+        }
+        _ => (TrayState::Focused, format!("Companion Cube — focused{suffix}")),
+    }
 }
 
 /// Run the continuous capture loop, writing events to the database.
@@ -485,6 +586,50 @@ async fn capture_loop(state: &AppState, cancel: CancellationToken) -> Result<()>
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tray_focused_when_active_no_recent_nudge() {
+        let (s, tip) = classify_tray_state(Some("iTerm2"), Some(2000), Some(1000), None, None);
+        assert_eq!(s, TrayState::Focused);
+        assert_eq!(tip, "Companion Cube — focused · iTerm2");
+    }
+
+    #[test]
+    fn tray_drifting_on_recent_nudge() {
+        let (s, _) = classify_tray_state(
+            Some("Brave Browser"),
+            Some(2000),
+            None,
+            None,
+            Some("Nudge".to_string()),
+        );
+        assert_eq!(s, TrayState::Drifting);
+    }
+
+    #[test]
+    fn tray_idle_when_idle_start_newest() {
+        let (s, tip) = classify_tray_state(Some("iTerm2"), Some(1000), Some(600_000), Some(500), None);
+        assert_eq!(s, TrayState::Idle);
+        assert_eq!(tip, "Companion Cube — idle");
+    }
+
+    #[test]
+    fn tray_not_idle_on_startup_probe_same_ts() {
+        // capture emits idle_start with the same ts as the first app_focus
+        let (s, _) = classify_tray_state(Some("iTerm2"), Some(1000), Some(1000), None, None);
+        assert_eq!(s, TrayState::Focused);
+    }
+
+    #[test]
+    fn tray_idle_end_returns_to_focused() {
+        let (s, _) = classify_tray_state(Some("iTerm2"), Some(1000), Some(5000), Some(9000), None);
+        assert_eq!(s, TrayState::Focused);
+    }
 }
 
 /// Capture a screenshot, run OCR + vision classification, and store results

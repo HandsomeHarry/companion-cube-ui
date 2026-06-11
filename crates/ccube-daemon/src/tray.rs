@@ -15,10 +15,22 @@ use tokio_util::sync::CancellationToken;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
 
+/// Focus state mirrored into the tray icon — the Aura concept at its smallest:
+/// warm when focused, cool when drifting, gray when idle. Like Mem Reduct's
+/// color-coded tray percentage, the icon itself is the status display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayState {
+    Focused,
+    Drifting,
+    Idle,
+}
+
 /// Events delivered to the main-thread event loop.
 pub enum UserEvent {
     /// A tray menu item was activated.
     Menu(MenuEvent),
+    /// Focus state changed; repaint the icon and tooltip.
+    State(TrayState, String),
     /// The tokio runtime finished graceful shutdown; safe to exit the process.
     Shutdown,
 }
@@ -26,7 +38,19 @@ pub enum UserEvent {
 /// Build the typed event loop. Must be called on the main thread *before* the
 /// tokio runtime is spawned so a proxy can be handed to it.
 pub fn build_event_loop() -> EventLoop<UserEvent> {
-    EventLoopBuilder::<UserEvent>::with_user_event().build()
+    #[allow(unused_mut)]
+    let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+
+    // Without an app bundle the default activation policy suppresses menu-bar
+    // UI — NSStatusItem creation "succeeds" but nothing appears. Accessory =
+    // menu-bar presence without a Dock icon. Must be set before run().
+    #[cfg(target_os = "macos")]
+    {
+        use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
+        event_loop.set_activation_policy(ActivationPolicy::Accessory);
+    }
+
+    event_loop
 }
 
 /// Run the tray event loop on the main thread. Never returns; exits the process
@@ -62,7 +86,10 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboar
                     .with_icon(brand_icon())
                     .build()
                 {
-                    Ok(t) => tray = Some(t),
+                    Ok(t) => {
+                        tracing::info!("tray icon created");
+                        tray = Some(t);
+                    }
                     Err(e) => tracing::error!(error = %e, "failed to create tray icon"),
                 }
 
@@ -73,6 +100,17 @@ pub fn run(event_loop: EventLoop<UserEvent>, cancel: CancellationToken, dashboar
                     use objc2_core_foundation::CFRunLoop;
                     if let Some(rl) = CFRunLoop::main() {
                         rl.wake_up();
+                    }
+                }
+            }
+            Event::UserEvent(UserEvent::State(state, tooltip)) => {
+                tracing::debug!(?state, %tooltip, "tray: state update received");
+                if let Some(ref t) = tray {
+                    if let Err(e) = t.set_icon(Some(state_icon(state))) {
+                        tracing::warn!(error = %e, "failed to update tray icon");
+                    }
+                    if let Err(e) = t.set_tooltip(Some(&tooltip)) {
+                        tracing::warn!(error = %e, "failed to update tray tooltip");
                     }
                 }
             }
@@ -110,7 +148,21 @@ fn open_dashboard(url: &str) {
 }
 
 /// A 32x32 burnt-orange filled circle matching the ccube brand (`#F16A01`).
+/// Initial icon before the first state update arrives.
 fn brand_icon() -> Icon {
+    circle_icon([0xF1, 0x6A, 0x01])
+}
+
+/// Icon for a focus state: warm orange focused, cool blue drifting, gray idle.
+fn state_icon(state: TrayState) -> Icon {
+    match state {
+        TrayState::Focused => circle_icon([0xF1, 0x6A, 0x01]),
+        TrayState::Drifting => circle_icon([0x4A, 0x90, 0xD8]),
+        TrayState::Idle => circle_icon([0x8E, 0x8E, 0x8E]),
+    }
+}
+
+fn circle_icon(rgb: [u8; 3]) -> Icon {
     const SIZE: u32 = 32;
     let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
     let center = (SIZE as f32 - 1.0) / 2.0;
@@ -120,7 +172,7 @@ fn brand_icon() -> Icon {
             let dx = x as f32 - center;
             let dy = y as f32 - center;
             if dx * dx + dy * dy <= radius * radius {
-                rgba.extend_from_slice(&[0xF1, 0x6A, 0x01, 0xFF]);
+                rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 0xFF]);
             } else {
                 rgba.extend_from_slice(&[0, 0, 0, 0]);
             }
