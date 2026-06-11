@@ -224,7 +224,11 @@ extern "C" fn poll_timer_callback(
         CFRunLoop::get_current().stop();
         return;
     }
-    poll_title_url_and_idle();
+    // Same boundary rule as ocr_timer_callback: panics must not cross
+    // extern "C" (they abort the process).
+    if std::panic::catch_unwind(poll_title_url_and_idle).is_err() {
+        tracing::warn!("poll callback panicked; skipping this cycle");
+    }
 }
 
 fn poll_title_url_and_idle() {
@@ -310,16 +314,26 @@ extern "C" fn ocr_timer_callback(
     }
     let ts = now_ms();
 
-    let should = CAPTURE_STATE.with(|c| c.borrow().as_ref().map(|s| s.has_screen_permission).unwrap_or(false));
-    if !should {
+    // Live permission check each cycle: the startup flag can go stale when
+    // the user revokes (or never grants) Screen Recording for this bundle.
+    let enabled_at_start =
+        CAPTURE_STATE.with(|c| c.borrow().as_ref().map(|s| s.has_screen_permission).unwrap_or(false));
+    if !enabled_at_start || !screen_permission_now() {
         return;
     }
 
-    let ocr_text = match run_ocr() {
-        Ok(text) if !text.is_empty() => Some(text),
-        Ok(_) => None,
-        Err(e) => {
+    // catch_unwind: a panic must not cross this extern "C" boundary (it
+    // aborts the process). xcap is known to panic internally when screen
+    // recording permission is missing or revoked mid-session.
+    let ocr_text = match std::panic::catch_unwind(run_ocr) {
+        Ok(Ok(text)) if !text.is_empty() => Some(text),
+        Ok(Ok(_)) => None,
+        Ok(Err(e)) => {
             tracing::debug!("macOS OCR failed: {e}");
+            None
+        }
+        Err(_) => {
+            tracing::warn!("macOS OCR panicked (screen permission?); skipping this cycle");
             None
         }
     };
@@ -348,6 +362,11 @@ fn run_ocr() -> anyhow::Result<String> {
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
     fn CGEventSourceSecondsSinceLastEventType(state_id: i32, event_type: u32) -> f64;
+    /// True if the process already has Screen Recording permission. Cheap,
+    /// never prompts, never throws.
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    /// Triggers the system Screen Recording prompt (once per identity).
+    fn CGRequestScreenCaptureAccess() -> bool;
 }
 
 unsafe fn get_idle_seconds() -> f64 {
@@ -603,11 +622,22 @@ fn is_transient_macos_app(app: &str) -> bool {
     )
 }
 
+/// Ask the OS, not a trial screenshot: a probe capture can succeed during a
+/// permission grace period and then throw an uncatchable ObjC exception on
+/// a later capture. Preflight is authoritative; the request triggers the
+/// System Settings prompt for first-run bundles.
 fn check_screen_recording_permission() -> bool {
-    match crate::capture_screenshot() {
-        Ok(data) if !data.is_empty() => true,
-        _ => false,
+    if unsafe { CGPreflightScreenCaptureAccess() } {
+        return true;
     }
+    unsafe { CGRequestScreenCaptureAccess() }
+}
+
+/// Cheap re-check, so revocation mid-session disables OCR/vision instead of
+/// crashing: a capture without permission throws an uncatchable ObjC
+/// exception. Callers must gate every capture_screenshot() on this.
+pub fn screen_permission_now() -> bool {
+    unsafe { CGPreflightScreenCaptureAccess() }
 }
 
 #[cfg(test)]

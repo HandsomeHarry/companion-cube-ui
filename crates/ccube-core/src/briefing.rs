@@ -501,6 +501,8 @@ mod tests {
             mode: None,
             ocr_text: None,
             vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 
@@ -623,6 +625,8 @@ mod tests {
             mode: None,
             ocr_text: None,
             vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 
@@ -720,6 +724,8 @@ mod tests {
             mode: None,
             ocr_text: None,
             vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 
@@ -745,6 +751,8 @@ mod tests {
             mode: None,
             ocr_text: ocr_text.map(|s| s.to_string()),
             vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 

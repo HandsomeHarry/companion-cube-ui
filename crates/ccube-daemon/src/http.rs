@@ -68,6 +68,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .route("/llm/health", get(llm_health))
+        .route("/notify/test", post(notify_test))
         .route("/activity", get(activity))
         .route("/briefing", get(get_briefing))
         .route("/detect", post(detect))
@@ -78,6 +79,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/corrections", get(list_corrections_handler).post(create_correction))
         .route("/corrections/{id}", get(get_correction_handler))
         .route("/corrections/group", post(create_group_correction))
+        .route("/sessions/{id}", axum::routing::put(rename_session_handler))
         .route("/decisions", get(list_decisions_handler))
         .route("/agents/curator/run", post(run_curator_handler))
         .route("/agents/reflector/run", post(run_reflector_handler))
@@ -249,6 +251,13 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
         uptime_s: state.start_time.elapsed().as_secs(),
         daemon_version: state.version,
     })
+}
+
+/// POST /notify/test — send a sample nudge notification so users can check
+/// their notification settings without waiting for a real drift.
+async fn notify_test() -> Json<serde_json::Value> {
+    crate::notify::send_nudge(0, "Notifications are working — this is what a nudge looks like.");
+    Json(serde_json::json!({ "status": "sent" }))
 }
 
 /// GET /llm/health — probe the configured LLM backend (2s timeout).
@@ -848,9 +857,6 @@ async fn set_llm_config(
 
 // ---------- Summarize constants ----------
 
-/// How far back to look for events when summarizing.
-const SUMMARIZE_LOOKBACK_HOURS: i64 = 2;
-
 /// Events shorter than this are excluded from grouping (sub-second noise).
 const SUMMARIZE_MIN_DURATION_MS: i64 = 0;
 
@@ -895,18 +901,77 @@ struct LlmSessionGroup {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SessionGroupWithEvents {
+    /// Stable session ID (sessions table). Corrections and renames reference
+    /// this, never the title.
+    pub id: i64,
     pub title: String,
     pub distraction: bool,
+    /// User-touched sessions are pinned; organize passes never modify them.
+    pub pinned: bool,
     pub events: Vec<ccube_core::db::EventRow>,
     pub total_duration_ms: i64,
-    #[serde(default)]
-    pub event_descriptions: std::collections::HashMap<String, String>,
 }
 
 #[derive(Serialize, Clone)]
 pub struct SummariesResponse {
     pub generated_at: i64,
     pub groups: Vec<SessionGroupWithEvents>,
+}
+
+/// Canonical day range key for a timestamp, in local time.
+fn day_range_key(ts_ms: i64) -> String {
+    let dt = chrono::DateTime::from_timestamp_millis(ts_ms)
+        .map(|t| t.with_timezone(&chrono::Local))
+        .unwrap_or_else(chrono::Local::now);
+    format!("day:{}", dt.format("%Y-%m-%d"))
+}
+
+/// Local-midnight start of the day containing `ts_ms`.
+fn day_start_ms(ts_ms: i64) -> i64 {
+    use chrono::TimeZone;
+    let dt = chrono::DateTime::from_timestamp_millis(ts_ms)
+        .map(|t| t.with_timezone(&chrono::Local))
+        .unwrap_or_else(chrono::Local::now);
+    chrono::Local
+        .with_ymd_and_hms(
+            chrono::Datelike::year(&dt),
+            chrono::Datelike::month(&dt),
+            chrono::Datelike::day(&dt),
+            0,
+            0,
+            0,
+        )
+        .single()
+        .map(|d| d.timestamp_millis())
+        .unwrap_or(ts_ms)
+}
+
+/// Assemble the current state of a range from the sessions table.
+fn load_sessions_response(
+    conn: &ccube_core::db::Connection,
+    range_key: &str,
+) -> Result<SummariesResponse, ApiError> {
+    let sessions = db::list_sessions(conn, range_key).map_err(ApiError::internal)?;
+    let mut groups = Vec::with_capacity(sessions.len());
+    for s in sessions {
+        let events = db::query_events_by_session(conn, s.id).map_err(ApiError::internal)?;
+        if events.is_empty() {
+            continue; // pinned-but-empty sessions don't render
+        }
+        let total_duration_ms = events.iter().filter_map(|e| e.duration_ms).sum();
+        groups.push(SessionGroupWithEvents {
+            id: s.id,
+            title: s.label,
+            distraction: s.distraction,
+            pinned: s.pinned,
+            events,
+            total_duration_ms,
+        });
+    }
+    Ok(SummariesResponse {
+        generated_at: chrono::Utc::now().timestamp_millis(),
+        groups,
+    })
 }
 
 /// Build the LLM prompt for summarizing events into sessions.
@@ -994,34 +1059,50 @@ Make sure every field is separated by a comma. Output:
     )
 }
 
-/// Core summarization logic — fetches events, calls LLM, parses response into groups.
+/// Core summarization logic.
+///
+/// The LLM proposes; the sessions table is the source of truth. An
+/// incremental pass (`full = false`, the 5-minute auto-loop) only groups
+/// events that belong to no session yet — it appends, never rewrites. A full
+/// pass (`full = true`, the ⚡ Organize button) clears *unpinned* sessions in
+/// the range and regroups, but never touches pinned (user-edited) sessions
+/// or their events.
 pub async fn run_summarize(
     state: &AppState,
     since_ms: Option<i64>,
     until_ms: Option<i64>,
+    range_key: Option<String>,
+    full: bool,
 ) -> Result<SummariesResponse, ApiError> {
     let conn =
         db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
     let now = chrono::Utc::now().timestamp_millis();
-    let since = since_ms.unwrap_or(now - SUMMARIZE_LOOKBACK_HOURS * 3_600_000);
+    let range_key = range_key.unwrap_or_else(|| day_range_key(now));
+    let since = since_ms.unwrap_or_else(|| day_start_ms(now));
     let until = until_ms.unwrap_or(i64::MAX);
+
+    if full {
+        let cleared =
+            db::clear_unpinned_sessions(&conn, &range_key).map_err(ApiError::internal)?;
+        tracing::info!(range_key, cleared, "organize: cleared unpinned sessions");
+    }
+
     let all_events = db::query_recent_events(&conn, since).map_err(ApiError::internal)?;
 
-    // Filter to app_focus events within the time range
+    // Only unassigned app_focus events get grouped; events in sessions
+    // (pinned or fresh) are already owned.
     let events: Vec<_> = all_events
         .into_iter()
         .filter(|e| {
             e.kind == "app_focus"
                 && e.duration_ms.unwrap_or(0) > SUMMARIZE_MIN_DURATION_MS
                 && e.ts < until
+                && e.session_id.is_none()
         })
         .collect();
 
     if events.is_empty() {
-        return Ok(SummariesResponse {
-            generated_at: now,
-            groups: vec![],
-        });
+        return load_sessions_response(&conn, &range_key);
     }
 
     // Load recent corrections for prompt context (best-effort)
@@ -1070,94 +1151,92 @@ pub async fn run_summarize(
         }
     }
 
-    // Map LLM groups to SessionGroupWithEvents
+    // Persist LLM groups as session rows and assign events to them.
     let mut used_event_ids = std::collections::HashSet::<i64>::new();
-    let mut groups: Vec<SessionGroupWithEvents> = Vec::new();
+    let mut new_session_bounds: Vec<(i64, i64, i64)> = Vec::new(); // (session_id, lo, hi)
 
     for group in &all_llm_groups {
-        let mut group_events = Vec::new();
-        let mut mapped_descriptions = std::collections::HashMap::new();
-
+        // Resolve 1-based LLM indices to (event, description) pairs first.
+        let mut members: Vec<(&ccube_core::db::EventRow, Option<&String>)> = Vec::new();
         for &llm_id in &group.event_ids {
-            if llm_id < 1 { continue; }
+            if llm_id < 1 {
+                continue;
+            }
             let idx = (llm_id - 1) as usize;
             if idx < events.len() {
                 let event = &events[idx];
                 if used_event_ids.insert(event.id) {
-                    group_events.push(event.clone());
-                }
-                if let Some(desc) = group.descriptions.get(&llm_id.to_string()) {
-                    mapped_descriptions.insert(event.id.to_string(), desc.clone());
+                    members.push((event, group.descriptions.get(&llm_id.to_string())));
                 }
             }
         }
+        if members.is_empty() {
+            continue;
+        }
 
-        if group_events.is_empty() { continue; }
+        let lo = members.iter().map(|(e, _)| e.ts).min().unwrap_or(now);
+        let hi = members.iter().map(|(e, _)| e.ts).max().unwrap_or(now);
+        let sid = db::create_session(
+            &conn,
+            &range_key,
+            &group.title,
+            lo,
+            hi,
+            group.distraction,
+            "llm",
+        )
+        .map_err(ApiError::internal)?;
 
-        let total_duration: i64 = group_events.iter().filter_map(|e| e.duration_ms).sum();
-        groups.push(SessionGroupWithEvents {
-            title: group.title.clone(),
-            distraction: group.distraction,
-            events: group_events,
-            total_duration_ms: total_duration,
-            event_descriptions: mapped_descriptions,
-        });
+        for (event, desc) in members {
+            db::assign_event_session(&conn, event.id, Some(sid))
+                .map_err(ApiError::internal)?;
+            if let Some(desc) = desc {
+                db::update_event_llm_desc(&conn, event.id, desc)
+                    .map_err(ApiError::internal)?;
+            }
+        }
+        new_session_bounds.push((sid, lo, hi));
     }
 
-    // Auto-assign ungrouped events to nearest group by timestamp proximity
-    let ungrouped: Vec<_> = events.iter()
-        .filter(|e| !used_event_ids.contains(&e.id))
-        .collect();
-
-    if !ungrouped.is_empty() && !groups.is_empty() {
-        // Build timestamp bounds for each group
-        let group_bounds: Vec<(i64, i64)> = groups.iter().map(|g| {
-            let ts_vals: Vec<i64> = g.events.iter().map(|e| e.ts).collect();
-            (*ts_vals.iter().min().unwrap_or(&0), *ts_vals.iter().max().unwrap_or(&0))
-        }).collect();
-
-        for event in ungrouped {
-            // Find the group whose time range is closest to this event's timestamp
-            let best_idx = group_bounds.iter().enumerate()
-                .min_by_key(|(_, (lo, hi))| {
-                    if event.ts >= *lo && event.ts <= *hi { 0 }
-                    else if event.ts < *lo { lo - event.ts }
-                    else { event.ts - hi }
+    // Stragglers the LLM skipped: attach to the nearest session created in
+    // this pass (never to a pinned session — those belong to the user).
+    if !new_session_bounds.is_empty() {
+        for event in events.iter().filter(|e| !used_event_ids.contains(&e.id)) {
+            let best = new_session_bounds
+                .iter()
+                .min_by_key(|(_, lo, hi)| {
+                    if event.ts >= *lo && event.ts <= *hi {
+                        0
+                    } else if event.ts < *lo {
+                        lo - event.ts
+                    } else {
+                        event.ts - hi
+                    }
                 })
-                .map(|(i, _)| i);
-
-            if let Some(idx) = best_idx {
-                groups[idx].events.push(event.clone());
-                groups[idx].total_duration_ms += event.duration_ms.unwrap_or(0);
-                used_event_ids.insert(event.id);
+                .map(|(sid, _, _)| *sid);
+            if let Some(sid) = best {
+                db::assign_event_session(&conn, event.id, Some(sid))
+                    .map_err(ApiError::internal)?;
             }
         }
-
-        // Sort events within each group by timestamp
-        for g in &mut groups {
-            g.events.sort_by_key(|e| e.ts);
+    } else if !events.is_empty() {
+        // LLM produced nothing usable: one fallback session so the events
+        // aren't re-sent to the LLM every 5 minutes.
+        let lo = events.iter().map(|e| e.ts).min().unwrap_or(now);
+        let hi = events.iter().map(|e| e.ts).max().unwrap_or(now);
+        let sid = db::create_session(&conn, &range_key, "Activity", lo, hi, false, "llm")
+            .map_err(ApiError::internal)?;
+        for event in &events {
+            db::assign_event_session(&conn, event.id, Some(sid))
+                .map_err(ApiError::internal)?;
         }
     }
 
-    // Fallback: if no groups were formed at all, create one "Activity" group
-    if groups.is_empty() && !events.is_empty() {
-        let total_duration: i64 = events.iter().filter_map(|e| e.duration_ms).sum();
-        groups.push(SessionGroupWithEvents {
-            title: "Activity".to_string(),
-            distraction: false,
-            events,
-            total_duration_ms: total_duration,
-            event_descriptions: std::collections::HashMap::new(),
-        });
-    }
-
-    Ok(SummariesResponse {
-        generated_at: now,
-        groups,
-    })
+    load_sessions_response(&conn, &range_key)
 }
 
-/// GET /summaries?range_key=day:2026-05-21 — return persisted summary for a date range.
+/// GET /summaries?range_key=day:2026-05-21 — current sessions for a range,
+/// read straight from the sessions table (no LLM call).
 async fn get_summaries(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SummariesQuery>,
@@ -1165,21 +1244,18 @@ async fn get_summaries(
     let range_key = match params.range_key {
         Some(k) => k,
         None => {
-            // Backward compat: try the in-memory cache
+            // Backward compat: the in-memory cache from the auto-loop
             let cache = state.cached_summaries.read().await;
             return Ok(Json(cache.clone()));
         }
     };
 
-    let conn = db::open_summaries_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
-    match db::get_summary(&conn, &range_key).map_err(ApiError::internal)? {
-        Some((generated_at, groups_json)) => {
-            let groups: Vec<SessionGroupWithEvents> =
-                serde_json::from_str(&groups_json).unwrap_or_default();
-            Ok(Json(Some(SummariesResponse { generated_at, groups })))
-        }
-        None => Ok(Json(None)),
+    let conn = db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+    let resp = load_sessions_response(&conn, &range_key)?;
+    if resp.groups.is_empty() {
+        return Ok(Json(None));
     }
+    Ok(Json(Some(resp)))
 }
 
 #[derive(Deserialize)]
@@ -1187,22 +1263,22 @@ struct SummariesQuery {
     range_key: Option<String>,
 }
 
-/// POST /summarize — trigger immediate summarization, update cache, return result.
-/// Optional JSON body: `{ "since_ms": <epoch_ms>, "until_ms": <epoch_ms> }`
-/// If not provided, defaults to last SUMMARIZE_LOOKBACK_HOURS.
+/// POST /summarize — run an organize pass and return the resulting sessions.
+/// Body: `{ since_ms?, until_ms?, range_key?, full? }`. `full: true` (the ⚡
+/// Organize button) regroups the whole range except pinned sessions;
+/// otherwise only ungrouped events are summarized.
 async fn run_summarize_handler(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SummarizeRequest>,
 ) -> Result<Json<SummariesResponse>, ApiError> {
-    let result = run_summarize(&state, body.since_ms, body.until_ms).await?;
-
-    // Persist to DB if range_key was provided
-    if let Some(rk) = body.range_key.as_deref() {
-        let conn = db::open_summaries_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
-        let groups_json = serde_json::to_string(&result.groups).unwrap_or_default();
-        db::upsert_summary(&conn, rk, body.since_ms.unwrap_or(0), body.until_ms.unwrap_or(i64::MAX), result.generated_at, &groups_json)
-            .map_err(ApiError::internal)?;
-    }
+    let result = run_summarize(
+        &state,
+        body.since_ms,
+        body.until_ms,
+        body.range_key,
+        body.full.unwrap_or(false),
+    )
+    .await?;
 
     *state.cached_summaries.write().await = Some(result.clone());
     Ok(Json(result))
@@ -1213,6 +1289,7 @@ struct SummarizeRequest {
     since_ms: Option<i64>,
     until_ms: Option<i64>,
     range_key: Option<String>,
+    full: Option<bool>,
 }
 
 // ---------- Group correction endpoints ----------
@@ -1221,64 +1298,137 @@ struct SummarizeRequest {
 struct GroupCorrectionRequest {
     /// The event ID that was moved
     event_id: i64,
-    /// The group title the event was moved FROM
-    from_group: String,
-    /// The group title the event was moved TO
-    to_group: String,
-    /// Optional: new title for a renamed group
-    renamed_to: Option<String>,
+    /// Destination session. None = create a new session for the event.
+    to_session_id: Option<i64>,
+    /// Label for a newly created session (used when to_session_id is None).
+    new_session_label: Option<String>,
+    /// false suppresses the correction record (used by undo).
+    record: Option<bool>,
 }
 
 #[derive(Serialize)]
 struct GroupCorrectionResponse {
     status: String,
-    message: String,
+    /// The session the event ended up in (new or existing).
+    session_id: i64,
 }
 
-/// POST /corrections/group — record a user grouping correction.
-/// This is the key feedback loop: when the user drags an event between groups
-/// or renames a group, we record it for future LLM improvement.
+/// POST /corrections/group — move an event between sessions.
+///
+/// This is the key feedback loop. The move is applied to the sessions table
+/// immediately (source + destination both pin: the user curated them), and a
+/// correction record teaches the curator. The next organize pass cannot undo
+/// the move because pinned sessions are off-limits.
 async fn create_group_correction(
     State(state): State<Arc<AppState>>,
     Json(body): Json<GroupCorrectionRequest>,
 ) -> Result<Json<GroupCorrectionResponse>, ApiError> {
-    // Write to corrections DB as a simple record
-    let conn =
-        db::open_corrections_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+    let conn = db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
 
-    // Store as a correction with verdict = "group_reassign"
-    // decision_id = event_id (reuse field)
-    let verdict = format!(
-        "group_reassign: event {} from '{}' to '{}'{}",
-        body.event_id,
-        body.from_group,
-        body.to_group,
-        body.renamed_to
-            .as_ref()
-            .map(|r| format!(", renamed to '{}'", r))
-            .unwrap_or_default()
-    );
+    // Resolve context before mutating, for a readable correction record.
+    let event = db::query_recent_events(&conn, 0)
+        .map_err(ApiError::internal)?
+        .into_iter()
+        .find(|e| e.id == body.event_id)
+        .ok_or_else(|| ApiError::bad_request("unknown event_id"))?;
+    let from_session = match event.session_id {
+        Some(sid) => db::get_session(&conn, sid).map_err(ApiError::internal)?,
+        None => None,
+    };
 
-    // Use event_id as decision_id (it's just a reference)
-    db::insert_correction(
-        &conn,
-        body.event_id,
-        "group_assign",
-        &verdict,
-        "{}",
-        "",
-    )
-    .map_err(ApiError::internal)?;
+    let to_session_id = match body.to_session_id {
+        Some(sid) => {
+            let s = db::get_session(&conn, sid)
+                .map_err(ApiError::internal)?
+                .ok_or_else(|| ApiError::bad_request("unknown to_session_id"))?;
+            db::set_session_pinned(&conn, s.id, true).map_err(ApiError::internal)?;
+            s.id
+        }
+        None => {
+            let label = body
+                .new_session_label
+                .as_deref()
+                .unwrap_or("New session");
+            // created_by=user → born pinned
+            db::create_session(
+                &conn,
+                &day_range_key(event.ts),
+                label,
+                event.ts,
+                event.ts,
+                false,
+                "user",
+            )
+            .map_err(ApiError::internal)?
+        }
+    };
 
-    tracing::info!(
-        event_id = body.event_id,
-        from = %body.from_group,
-        to = %body.to_group,
-        "group correction recorded"
-    );
+    db::assign_event_session(&conn, body.event_id, Some(to_session_id))
+        .map_err(ApiError::internal)?;
+    // Pin the source too (if it survived losing the event): its membership
+    // is now user-curated.
+    if let Some(ref from) = from_session
+        && db::get_session(&conn, from.id).map_err(ApiError::internal)?.is_some()
+    {
+        db::set_session_pinned(&conn, from.id, true).map_err(ApiError::internal)?;
+    }
+
+    if body.record.unwrap_or(true) {
+        let to_label = db::get_session(&conn, to_session_id)
+            .map_err(ApiError::internal)?
+            .map(|s| s.label)
+            .unwrap_or_default();
+        let verdict = format!(
+            "group_reassign: event {} ({} – {}) from '{}' to '{}'",
+            body.event_id,
+            event.app.as_deref().unwrap_or("?"),
+            event.llm_desc.as_deref().or(event.title.as_deref()).unwrap_or("?"),
+            from_session.as_ref().map(|s| s.label.as_str()).unwrap_or("(ungrouped)"),
+            to_label,
+        );
+        let corr_conn =
+            db::open_corrections_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+        db::insert_correction(&corr_conn, body.event_id, "group_assign", &verdict, "{}", "")
+            .map_err(ApiError::internal)?;
+        tracing::info!(event_id = body.event_id, to_session_id, %verdict, "group correction recorded");
+    }
 
     Ok(Json(GroupCorrectionResponse {
         status: "ok".to_string(),
-        message: format!("Recorded: event {} moved from '{}' to '{}'", body.event_id, body.from_group, body.to_group),
+        session_id: to_session_id,
+    }))
+}
+
+#[derive(Deserialize)]
+struct RenameSessionRequest {
+    label: String,
+}
+
+/// PUT /sessions/{id} — rename a session. Renames pin (the LLM never
+/// overwrites a user's label) and are recorded for the curator.
+async fn rename_session_handler(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    Json(body): Json<RenameSessionRequest>,
+) -> Result<Json<GroupCorrectionResponse>, ApiError> {
+    let conn = db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+    let old = db::get_session(&conn, id)
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::bad_request("unknown session id"))?;
+
+    if !db::rename_session(&conn, id, &body.label).map_err(ApiError::internal)? {
+        return Err(ApiError::internal("rename failed"));
+    }
+
+    let verdict = format!("group_rename: '{}' renamed to '{}'", old.label, body.label);
+    let corr_conn =
+        db::open_corrections_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+    db::insert_correction(&corr_conn, id, "group_rename", &verdict, "{}", "")
+        .map_err(ApiError::internal)?;
+    tracing::info!(session_id = id, %verdict, "session renamed");
+
+    Ok(Json(GroupCorrectionResponse {
+        status: "ok".to_string(),
+        session_id: id,
     }))
 }

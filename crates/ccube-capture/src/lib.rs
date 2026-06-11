@@ -52,6 +52,22 @@ pub mod ocr;
 /// Uses xcap under the hood (cross-platform: Windows/macOS/Linux).
 /// Returns an error if no monitors are available (headless system).
 pub fn capture_screenshot() -> Result<Vec<u8>> {
+    // macOS: the capture APIs throw NSExceptions in permission edge cases
+    // (notably: permission granted while this process was already running).
+    // A foreign exception crossing into Rust aborts the whole daemon, so it
+    // must be caught at the ObjC level and converted into an Err.
+    #[cfg(target_os = "macos")]
+    {
+        objc2::exception::catch(capture_screenshot_inner)
+            .unwrap_or_else(|e| Err(anyhow::anyhow!("screen capture threw: {e:?}")))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        capture_screenshot_inner()
+    }
+}
+
+fn capture_screenshot_inner() -> Result<Vec<u8>> {
     use xcap::Monitor;
 
     let monitors = Monitor::all()?;

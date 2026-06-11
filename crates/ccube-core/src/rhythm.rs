@@ -333,6 +333,8 @@ mod tests {
             mode: mode.map(|m| m.to_string()),
             ocr_text: None,
             vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 

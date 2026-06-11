@@ -198,86 +198,11 @@ async fn run_detector(state: &AppState, trigger: &str) {
                 "nudge suppressed (snoozed from tray)"
             );
         } else if let Some(id) = decision_id {
-            send_nudge_notification(id, msg);
+            crate::notify::send_nudge(id, msg);
         } else {
             tracing::warn!("nudge triggered but no decision_id available, skipping notification");
         }
     }
-}
-
-/// Send a desktop notification for a nudge via PowerShell balloon tip.
-/// Runs in a background thread so it never blocks the async runtime.
-///
-/// The message is passed via the `CCUBE_NUDGE_MSG` environment variable rather
-/// than interpolated into the script, preventing command injection from
-/// LLM-generated output.
-fn send_nudge_notification(decision_id: i64, message: &str) {
-    let msg = message.to_string();
-    let id_str = decision_id.to_string();
-
-    std::thread::spawn(move || {
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            let script = concat!(
-                "Add-Type -AssemblyName System.Windows.Forms;",
-                "$n = New-Object System.Windows.Forms.NotifyIcon;",
-                "$n.Icon = [System.Drawing.SystemIcons]::Information;",
-                "$n.BalloonTipTitle = 'Companion Cube #' + $env:CCUBE_DECISION_ID;",
-                "$n.BalloonTipText = $env:CCUBE_NUDGE_MSG;",
-                "$n.Visible = $true;",
-                "$n.ShowBalloonTip(8000);",
-                "Start-Sleep -Seconds 9;",
-                "$n.Dispose()"
-            );
-            match std::process::Command::new("powershell")
-                .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
-                .env("CCUBE_NUDGE_MSG", &msg)
-                .env("CCUBE_DECISION_ID", &id_str)
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output()
-            {
-                Ok(_) => tracing::debug!("nudge notification sent"),
-                Err(e) => tracing::warn!(error = %e, "failed to send nudge notification"),
-            }
-        }
-        #[cfg(target_os = "macos")]
-        {
-            // Native notification via osascript. The message is passed as an
-            // argv item (never interpolated into the script) so LLM-generated
-            // text cannot inject AppleScript. Copy follows the design spec's
-            // nudge anatomy: app name as title, the LLM's one sentence as body.
-            let _ = id_str; // decision id lives in the dashboard, not the banner
-            let script = concat!(
-                "on run argv\n",
-                "display notification (item 1 of argv) ",
-                "with title \"Companion Cube\" sound name \"Glass\"\n",
-                "end run"
-            );
-            match std::process::Command::new("osascript")
-                .args(["-e", script, &msg])
-                .output()
-            {
-                Ok(o) if o.status.success() => tracing::debug!("nudge notification sent"),
-                Ok(o) => tracing::warn!(
-                    stderr = %String::from_utf8_lossy(&o.stderr),
-                    "osascript notification failed"
-                ),
-                Err(e) => tracing::warn!(error = %e, "failed to send nudge notification"),
-            }
-        }
-        #[cfg(all(not(windows), not(target_os = "macos")))]
-        {
-            let title = format!("Companion Cube #{id_str}");
-            match std::process::Command::new("notify-send")
-                .args([&title, &msg])
-                .output()
-            {
-                Ok(_) => tracing::debug!("nudge notification sent"),
-                Err(e) => tracing::warn!(error = %e, "failed to send nudge notification"),
-            }
-        }
-    });
 }
 
 /// Hourly event prune loop.

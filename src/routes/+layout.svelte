@@ -23,22 +23,26 @@
   let daemonMsg = '';
   let theme: ThemeName = 'paper';
 
-  // History state — local mutable copies of groups for drag/rename
+  // History state — local mutable copies of groups for drag/rename.
+  // Sessions have stable IDs; all local state is keyed by ID so background
+  // refreshes can merge instead of stomping.
   let localGroups: SessionGroup[] = [];
-  let expandedGroups: number[] = [];
-  let editingGroupIdx: number | null = null;
+  let collapsedSessions = new Set<number>(); // default expanded; remember collapses
+  let editingSessionId: number | null = null;
   let editTitle = '';
-  let dragState: { event: EventRow; fromGroup: string } | null = null;
-  let dragOverGroup: string | null = null;
+  let dragState: { event: EventRow; fromSessionId: number | null } | null = null;
+  let dragOverTarget: number | 'new' | null = null; // session id or the new-session zone
   let isDragging = false;
   let dragX = 0;
   let dragY = 0;
+  let undoMove: { event: EventRow; toSessionId: number | null; timer: number } | null = null;
 
-  // Pointer-based drag: mousedown on ≡ handle → mousemove tracks hover → mouseup drops
-  function startDrag(e: MouseEvent, event: EventRow, groupTitle: string) {
+  // Pointer-based drag: mousedown on ≡ handle → mousemove tracks hover →
+  // mouseup drops. Esc cancels.
+  function startDrag(e: MouseEvent, event: EventRow, fromSessionId: number | null) {
     if (e.button !== 0) return;
     e.preventDefault();
-    dragState = { event, fromGroup: groupTitle };
+    dragState = { event, fromSessionId };
     isDragging = false;
 
     const onMove = (ev: MouseEvent) => {
@@ -47,52 +51,90 @@
       dragX = ev.clientX;
       dragY = ev.clientY;
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      dragOverTarget = null;
       if (el) {
-        const group = el.closest('[data-group-title]');
-        dragOverGroup = group ? group.getAttribute('data-group-title') : null;
+        if (el.closest('[data-drop-new]')) {
+          dragOverTarget = 'new';
+        } else {
+          const group = el.closest('[data-session-id]');
+          const sid = group?.getAttribute('data-session-id');
+          if (sid) dragOverTarget = Number(sid);
+        }
       }
     };
 
     const onUp = () => {
-      if (dragState && dragOverGroup && dragOverGroup !== dragState.fromGroup) {
-        finishDrop(dragState.fromGroup, dragOverGroup, dragState.event);
+      if (dragState && isDragging && dragOverTarget !== null
+          && dragOverTarget !== dragState.fromSessionId) {
+        finishDrop(dragState.event, dragState.fromSessionId, dragOverTarget);
       }
       cleanup();
     };
 
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') cleanup();
+    };
+
     const cleanup = () => {
       dragState = null;
-      dragOverGroup = null;
+      dragOverTarget = null;
       isDragging = false;
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('keydown', onKey);
     };
 
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    document.addEventListener('keydown', onKey);
   }
 
-  async function finishDrop(fromGroupTitle: string, toGroupTitle: string, movedEvent: EventRow) {
-    const fromGroup = localGroups.find(g => g.title === fromGroupTitle);
-    const toGroup = localGroups.find(g => g.title === toGroupTitle);
-    if (!fromGroup || !toGroup) return;
+  /** Apply a move locally (optimistic), persist it, arm the undo toast. */
+  async function finishDrop(
+    movedEvent: EventRow,
+    fromSessionId: number | null,
+    target: number | 'new',
+  ) {
+    try {
+      const res = await api.groupCorrection({
+        event_id: movedEvent.id,
+        to_session_id: target === 'new' ? null : target,
+        new_session_label: target === 'new' ? 'New session' : undefined,
+      });
+      armUndo(movedEvent, fromSessionId);
+      await refreshHistory(); // server state is truth; merge preserves UI state
+      if (target === 'new') startRenameSession(res.session_id);
+    } catch (e: any) {
+      error.set(e?.message || 'Move failed');
+    }
+  }
 
-    fromGroup.events = fromGroup.events.filter(e => e.id !== movedEvent.id);
-    toGroup.events.push(movedEvent);
-    fromGroup.total_duration_ms = fromGroup.events.reduce((s, e) => s + (e.duration_ms ?? 0), 0);
-    toGroup.total_duration_ms = toGroup.events.reduce((s, e) => s + (e.duration_ms ?? 0), 0);
-    localGroups = localGroups.filter(g => g.events.length > 0);
-    localGroups = localGroups;
+  function armUndo(event: EventRow, toSessionId: number | null) {
+    if (undoMove) clearTimeout(undoMove.timer);
+    // Undo means "move it back where it was" — only possible if it came
+    // from a real session (events from Just now have nowhere to go back to).
+    if (toSessionId === null) { undoMove = null; return; }
+    undoMove = {
+      event,
+      toSessionId,
+      timer: window.setTimeout(() => { undoMove = null; }, 5000),
+    };
+  }
 
+  async function performUndo() {
+    if (!undoMove) return;
+    clearTimeout(undoMove.timer);
+    const { event, toSessionId } = undoMove;
+    undoMove = null;
     try {
       await api.groupCorrection({
-        event_id: movedEvent.id,
-        from_group: fromGroupTitle,
-        to_group: toGroupTitle,
+        event_id: event.id,
+        to_session_id: toSessionId,
+        record: false, // undo is not a teaching signal
       });
+      await refreshHistory();
     } catch {}
   }
-  let lastGeneratedAt: number = 0;
 
   function dateCacheKey(sel: Date, mode: string): string {
     if (mode === 'day') return `day:${sel.getFullYear()}-${String(sel.getMonth() + 1).padStart(2, '0')}-${String(sel.getDate()).padStart(2, '0')}`;
@@ -124,20 +166,18 @@
   $: navLabel = formatNavLabel(selectedDate, today, viewMode);
   $: canGoFwd = canGoForward(selectedDate, today, viewMode);
 
-  $: if ($summaries?.groups && $summaries.generated_at !== lastGeneratedAt) {
-    lastGeneratedAt = $summaries.generated_at;
-    localGroups = $summaries.groups.map(g => ({
-      ...g,
-      events: [...g.events],
-    })).reverse();
-    expandedGroups = localGroups.map((_, i) => i); // expand all by default
+  // Merge server sessions into local state. Never replaces mid-drag, and
+  // collapse state survives because it's keyed by session ID.
+  $: if ($summaries?.groups && !isDragging) {
+    localGroups = $summaries.groups.map(g => ({ ...g, events: [...g.events] }));
   }
-  function toggleGroup(idx: number) {
-    if (expandedGroups.includes(idx)) {
-      expandedGroups = expandedGroups.filter(i => i !== idx);
+  function toggleGroup(sessionId: number) {
+    if (collapsedSessions.has(sessionId)) {
+      collapsedSessions.delete(sessionId);
     } else {
-      expandedGroups = [...expandedGroups, idx];
+      collapsedSessions.add(sessionId);
     }
+    collapsedSessions = collapsedSessions; // reactivity
   }
 
   function handleGroupKeydown(e: KeyboardEvent) {
@@ -328,32 +368,27 @@
     window.open(url, '_blank');
   }
 
-  // Drag & drop between groups
-  // Group rename
-  function startRename(idx: number) {
-    editingGroupIdx = idx;
-    editTitle = localGroups[idx].title;
+  // Group rename — persists via PUT /sessions/{id}; renames pin the session.
+  function startRenameSession(sessionId: number) {
+    editingSessionId = sessionId;
+    editTitle = localGroups.find(g => g.id === sessionId)?.title ?? '';
   }
 
-  async function finishRename(idx: number) {
-    if (!editTitle.trim() || editTitle === localGroups[idx].title) {
-      editingGroupIdx = null;
-      return;
-    }
-    const oldTitle = localGroups[idx].title;
-    localGroups[idx].title = editTitle.trim();
-    localGroups = localGroups;
-    editingGroupIdx = null;
+  async function finishRename(sessionId: number) {
+    const group = localGroups.find(g => g.id === sessionId);
+    const newTitle = editTitle.trim();
+    editingSessionId = null;
+    if (!group || !newTitle || newTitle === group.title) return;
 
-    // Record the rename as a correction
+    group.title = newTitle;
+    group.pinned = true;
+    localGroups = localGroups;
+
     try {
-      await api.groupCorrection({
-        event_id: localGroups[idx].events[0]?.id ?? 0,
-        from_group: oldTitle,
-        to_group: editTitle.trim(),
-        renamed_to: editTitle.trim(),
-      });
-    } catch {}
+      await api.renameSession(sessionId, newTitle);
+    } catch (e: any) {
+      error.set(e?.message || 'Rename failed');
+    }
   }
 
   // Settings helpers (unchanged)
@@ -432,7 +467,9 @@
       untilMs = endOfMonth(selectedDate).getTime();
     }
     const rk = dateCacheKey(selectedDate, viewMode);
-    await triggerSummarize(sinceMs, untilMs, rk);
+    // ⚡ Organize = full pass: regroups the range but never touches pinned
+    // (user-edited) sessions.
+    await triggerSummarize(sinceMs, untilMs, rk, true);
   }
 
   function autofocus(el: HTMLInputElement) { el.focus(); }
@@ -534,28 +571,70 @@
 
       {#if $error}
         <p class="error-msg">{$error}</p>
-      {:else if displayGroups.length > 0}
-        <!-- GROUPED TIMELINE -->
+      {:else if displayGroups.length > 0 || ungroupedEvents.length > 0}
+        <!-- LIVE HEAD — events not yet organized into a session -->
+        {#if ungroupedEvents.length > 0}
+          <div class="tl-group tl-group--live">
+            <div class="tl-gutter">
+              <span class="tl-gutter__time">{formatTime(ungroupedEvents[0]?.ts ?? Date.now())}</span>
+              <span class="tl-gutter__dot tl-gutter__dot--live"></span>
+            </div>
+            <div class="tl-body">
+              <div class="tl-header tl-header--live">
+                <span class="tl-header__title tl-header__title--live">Just now</span>
+                <span class="tl-header__count">{ungroupedEvents.length}</span>
+              </div>
+              <div class="tl-items">
+                {#each ungroupedEvents as event (event.id)}
+                  <div class="tl-item"
+                    class:dragging-source={isDragging && dragState?.event.id === event.id}
+                    on:click={() => openEvent(event)}
+                    on:keydown={(e) => { if (e.key === 'Enter') openEvent(event); }}
+                    role="button"
+                    tabindex="0"
+                  >
+                    <span class="tl-item__bullet">·</span>
+                    <span class="tl-item__app">{event.app ?? event.kind}</span>
+                    <span class="tl-item__title">– {cleanDesc(event.llm_desc, cleanDesc(event.vision_desc, event.title))}</span>
+                    {#if event.duration_ms}
+                      <span class="tl-item__dur">{formatDuration(event.duration_ms)}</span>
+                    {/if}
+                    <span class="tl-item__handle" class:active-drag={isDragging && dragState?.event.id === event.id} role="button" tabindex="-1" on:mousedown={(e) => startDrag(e, event, null)} on:click|stopPropagation title="Drag into a session">≡</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- NEW SESSION drop zone — only exists while dragging -->
+        {#if isDragging}
+          <div class="tl-dropnew" class:drag-over={dragOverTarget === 'new'} data-drop-new>
+            + Drop here to start a new session
+          </div>
+        {/if}
+
+        <!-- GROUPED TIMELINE (sessions, newest first) -->
         <div class="timeline">
-          {#each displayGroups as group, idx}
+          {#each displayGroups as group (group.id)}
             <div class="tl-group"
-              class:drag-over={dragOverGroup === group.title}
-              data-group-title={group.title}
+              class:drag-over={dragOverTarget === group.id}
+              data-session-id={group.id}
             >
               <div class="tl-gutter">
                 <span class="tl-gutter__time">{formatTime(group.events[group.events.length - 1]?.ts ?? Date.now())}</span>
                 <span class="tl-gutter__dot" class:distraction={group.distraction}></span>
               </div>
               <div class="tl-body">
-                <div class="tl-header" role="button" tabindex="0" on:click={() => toggleGroup(idx)} on:keydown={handleGroupKeydown}>
-                  {#if editingGroupIdx === idx}
+                <div class="tl-header" role="button" tabindex="0" on:click={() => toggleGroup(group.id)} on:keydown={handleGroupKeydown}>
+                  {#if editingSessionId === group.id}
                     <!-- Inline rename -->
                     <input
                       class="tl-rename"
                       type="text"
                       bind:value={editTitle}
-                      on:keydown={(e) => { if (e.key === 'Enter') finishRename(idx); if (e.key === 'Escape') editingGroupIdx = null; }}
-                      on:blur={() => finishRename(idx)}
+                      on:keydown={(e) => { if (e.key === 'Enter') finishRename(group.id); if (e.key === 'Escape') editingSessionId = null; }}
+                      on:blur={() => finishRename(group.id)}
                       on:click|stopPropagation
                       use:autofocus
                     />
@@ -563,16 +642,19 @@
                     <span class="tl-header__title" class:distraction={group.distraction}>
                       {group.title}
                     </span>
-                    <button class="tl-header__edit" on:click|stopPropagation={() => startRename(idx)} title="Rename group">
+                    {#if group.pinned}
+                      <span class="tl-header__pin" title="You've edited this session — auto-organize won't change it">⌖</span>
+                    {/if}
+                    <button class="tl-header__edit" on:click|stopPropagation={() => startRenameSession(group.id)} title="Rename group">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                     </button>
                   {/if}
                   <span class="tl-header__count">{group.events.length}</span>
                   <span class="tl-header__dur">{formatDuration(group.total_duration_ms)}</span>
-                  <span class="tl-header__toggle">{expandedGroups.includes(idx) ? '▾' : '▸'}</span>
+                  <span class="tl-header__toggle">{collapsedSessions.has(group.id) ? '▸' : '▾'}</span>
                 </div>
 
-                {#if expandedGroups.includes(idx)}
+                {#if !collapsedSessions.has(group.id)}
                   <div class="tl-items">
                     {#each group.events as event (event.id)}
                       <div class="tl-item"
@@ -584,11 +666,11 @@
                       >
                         <span class="tl-item__bullet">·</span>
                         <span class="tl-item__app">{event.app ?? event.kind}</span>
-                        <span class="tl-item__title">– {cleanDesc(group.event_descriptions?.[event.id], cleanDesc(event.vision_desc, event.title))}</span>
+                        <span class="tl-item__title">– {cleanDesc(event.llm_desc, cleanDesc(event.vision_desc, event.title))}</span>
                         {#if event.duration_ms}
                           <span class="tl-item__dur">{formatDuration(event.duration_ms)}</span>
                         {/if}
-                        <span class="tl-item__handle" class:active-drag={isDragging && dragState?.event.id === event.id} role="button" tabindex="-1" on:mousedown={(e) => startDrag(e, event, group.title)} on:click|stopPropagation title="Drag to another group">≡</span>
+                        <span class="tl-item__handle" class:active-drag={isDragging && dragState?.event.id === event.id} role="button" tabindex="-1" on:mousedown={(e) => startDrag(e, event, group.id)} on:click|stopPropagation title="Drag to another group">≡</span>
                       </div>
                     {/each}
                   </div>
@@ -597,20 +679,12 @@
             </div>
           {/each}
         </div>
-        <!-- UNGROUPED RECENT EVENTS (captured after last summarize) -->
-        {#if ungroupedEvents.length > 0}
-          <div class="timeline-flat" style="padding-top: 12px;">
-            {#each ungroupedEvents as event (event.id)}
-              <div class="tl-row">
-                <span class="tl-time">{formatTime(event.ts)}</span>
-                <span class="tl-dot" style="background: {event.kind === 'app_focus' ? 'var(--brand-orange)' : event.kind === 'idle_start' ? '#aaa' : '#888'}"></span>
-                <span class="tl-app">{event.app ?? event.kind}</span>
-                <span class="tl-detail">– {cleanDesc(event.vision_desc, event.title)}</span>
-                {#if event.duration_ms}
-                  <span class="tl-dur">{formatDuration(event.duration_ms)}</span>
-                {/if}
-              </div>
-            {/each}
+
+        <!-- UNDO TOAST -->
+        {#if undoMove}
+          <div class="undo-toast">
+            Moved “{undoMove.event.app ?? 'event'}”
+            <button class="undo-toast__btn" on:click={performUndo}>Undo</button>
           </div>
         {/if}
       {:else if filteredEvents.length > 0}
@@ -621,7 +695,7 @@
               <span class="tl-time">{formatTime(event.ts)}</span>
               <span class="tl-dot" style="background: {event.kind === 'app_focus' ? 'var(--brand-orange)' : event.kind === 'idle_start' ? '#aaa' : '#888'}"></span>
               <span class="tl-app">{event.app ?? event.kind}</span>
-              <span class="tl-detail">– {cleanDesc(event.vision_desc, event.title)}</span>
+              <span class="tl-detail">– {cleanDesc(event.llm_desc, cleanDesc(event.vision_desc, event.title))}</span>
               {#if event.duration_ms}
                 <span class="tl-dur">{formatDuration(event.duration_ms)}</span>
               {/if}
@@ -953,6 +1027,72 @@
   .tl-gutter__dot.distraction {
     background: var(--ink-faint);
     box-shadow: 0 0 0 3px rgba(163, 155, 142, 0.15);
+  }
+
+  /* Live head — not yet organized; quiet gray, no LLM label */
+  .tl-gutter__dot--live {
+    background: var(--ink-faint);
+    box-shadow: 0 0 0 3px rgba(163, 155, 142, 0.12);
+  }
+
+  .tl-header--live { cursor: default; }
+
+  .tl-header__title--live {
+    color: var(--ink-soft);
+    font-weight: 600;
+    font-style: italic;
+  }
+
+  .tl-header__pin {
+    color: var(--ink-faint);
+    font-size: 12px;
+    cursor: help;
+  }
+
+  /* New-session drop zone — exists only mid-drag */
+  .tl-dropnew {
+    margin: 4px 0 12px 56px;
+    padding: 10px 14px;
+    border: 1.5px dashed var(--divider);
+    border-radius: var(--r-panel);
+    color: var(--ink-faint);
+    font-size: 13px;
+    transition: all var(--t-fast) var(--ease);
+  }
+
+  .tl-dropnew.drag-over {
+    border-color: var(--brand-orange);
+    color: var(--brand-orange);
+    background: rgba(241, 106, 1, 0.06);
+  }
+
+  /* Undo toast */
+  .undo-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--card-white);
+    border: 1px solid var(--divider);
+    border-radius: var(--r-control);
+    box-shadow: var(--shadow-float);
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--ink);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    z-index: 50;
+  }
+
+  .undo-toast__btn {
+    border: none;
+    background: none;
+    color: var(--brand-orange);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0;
   }
 
   .tl-body { min-width: 0; }

@@ -8,6 +8,10 @@ export interface EventRow {
   mode: string | null;
   ocr_text: string | null;
   vision_desc?: string;
+  /** Stable session membership; null = not yet organized. */
+  session_id: number | null;
+  /** Per-event description from the summarize LLM pass. */
+  llm_desc: string | null;
 }
 
 export interface VaultItem {
@@ -19,11 +23,14 @@ export interface VaultItem {
 }
 
 export interface SessionGroup {
+  /** Stable session ID — corrections and renames reference this. */
+  id: number;
   title: string;
   distraction: boolean;
+  /** User-touched; organize passes never modify pinned sessions. */
+  pinned: boolean;
   events: EventRow[];
   total_duration_ms: number;
-  event_descriptions: Record<number, string>;
 }
 
 export interface SummariesResponse {

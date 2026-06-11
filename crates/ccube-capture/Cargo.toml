@@ -32,6 +32,9 @@ windows = { version = "0.62", features = [
 active-win-pos-rs = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# "exception" + "catch-all": screen capture can throw NSExceptions (e.g.
+# permission granted after process start); these must become Errs, not aborts.
+objc2 = { version = "0.6", features = ["exception", "catch-all"] }
 objc = "0.2"
 block = "0.1"
 core-graphics = "0.25"

@@ -26,3 +26,15 @@ tao = "0.34"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-foundation = { version = "0.3", features = ["CFRunLoop"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError", "NSObject"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+    "std",
+    "UNUserNotificationCenter",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationTrigger",
+    "UNNotificationSound",
+    "block2",
+] }
+block2 = "0.6"

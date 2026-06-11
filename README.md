@@ -108,6 +108,10 @@ cargo run -p ccube-cli      # `ccube` CLI (detect, briefing, daemon control, ...
 # Building
 npm run build           # Build frontend first — the daemon embeds build/ at compile time
 cargo build --release   # Production build of daemon + CLI
+
+# macOS app bundle (Companion Cube.app in dist/ — branded notifications,
+# menu-bar identity; ad-hoc signed)
+./scripts/make-bundle.sh
 ```
 
 Note: the daemon's `include_dir!` embeds the SvelteKit `build/` output, so run `npm run build` before any `cargo build` of `ccube-daemon`.

@@ -43,11 +43,11 @@ export const api = {
   summaries: () =>
     request<SummariesResponse | null>('/summaries'),
 
-  summarize: (sinceMs?: number, untilMs?: number, rangeKey?: string) =>
+  summarize: (sinceMs?: number, untilMs?: number, rangeKey?: string, full = false) =>
     request<SummariesResponse>('/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ since_ms: sinceMs, until_ms: untilMs, range_key: rangeKey }),
+      body: JSON.stringify({ since_ms: sinceMs, until_ms: untilMs, range_key: rangeKey, full }),
     }),
 
   summariesForKey: (rangeKey: string) =>
@@ -57,11 +57,24 @@ export const api = {
   rhythm: (days?: number) =>
     request<RhythmReport>(`/rhythm${days ? `?days=${days}` : ''}`),
 
-  // Group corrections
-  groupCorrection: (data: { event_id: number; from_group: string; to_group: string; renamed_to?: string }) =>
-    request<{ status: string; message: string }>('/corrections/group', {
+  // Group corrections — moves are applied to the sessions table immediately
+  // and pin both ends; `record: false` is for undo (no correction logged).
+  groupCorrection: (data: {
+    event_id: number;
+    to_session_id?: number | null;
+    new_session_label?: string;
+    record?: boolean;
+  }) =>
+    request<{ status: string; session_id: number }>('/corrections/group', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
+    }),
+
+  renameSession: (id: number, label: string) =>
+    request<{ status: string; session_id: number }>(`/sessions/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
     }),
 };

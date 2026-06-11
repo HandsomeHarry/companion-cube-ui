@@ -1,4 +1,5 @@
 pub mod http;
+mod notify;
 mod scheduler;
 mod tray;
 
@@ -221,7 +222,9 @@ async fn run_runtime(
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    match http::run_summarize(&summarize_state, None, None).await {
+                    // Incremental pass over today: groups only events that
+                    // belong to no session yet. Never rewrites history.
+                    match http::run_summarize(&summarize_state, None, None, None, false).await {
                         Ok(result) => {
                             *summarize_state.cached_summaries.write().await = Some(result);
                             tracing::info!("auto-summarization complete");
@@ -640,6 +643,12 @@ mod tests {
 async fn run_ocr_for_event(data_dir: &Path, event_id: i64) -> Result<()> {
     let data_dir = data_dir.to_path_buf();
     let (ocr_result, vision_result) = tokio::task::spawn_blocking(move || {
+        // Without permission the capture throws an uncatchable ObjC
+        // exception that would abort the whole daemon — preflight first.
+        #[cfg(target_os = "macos")]
+        if !ccube_capture::macos::screen_permission_now() {
+            anyhow::bail!("screen recording permission not granted");
+        }
         let png = ccube_capture::capture_screenshot()
             .context("screenshot capture failed")?;
 

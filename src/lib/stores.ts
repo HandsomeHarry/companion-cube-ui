@@ -39,10 +39,10 @@ export async function fetchSummaries(rangeKey?: string) {
   }
 }
 
-export async function triggerSummarize(sinceMs?: number, untilMs?: number, rangeKey?: string) {
+export async function triggerSummarize(sinceMs?: number, untilMs?: number, rangeKey?: string, full = false) {
   summarizing.set(true);
   try {
-    const data = await api.summarize(sinceMs, untilMs, rangeKey);
+    const data = await api.summarize(sinceMs, untilMs, rangeKey, full);
     summaries.set(data);
     return data;
   } catch (e: any) {
