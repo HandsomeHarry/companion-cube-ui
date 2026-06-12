@@ -182,7 +182,7 @@ fn open_dashboard(url: &str) {
 
 /// Initial icon before the first state update arrives: unobtrusive template.
 fn brand_icon() -> Icon {
-    circle_icon([0x00, 0x00, 0x00], 0xFF)
+    cube_icon([0x00, 0x00, 0x00], 0xFF)
 }
 
 /// Icon + template flag for a focus state.
@@ -194,29 +194,105 @@ fn brand_icon() -> Icon {
 /// Aura palette), and idle dims to a faint template mark.
 fn state_icon(state: TrayState) -> (Icon, bool) {
     match state {
-        TrayState::Focused => (circle_icon([0x00, 0x00, 0x00], 0xFF), true),
-        TrayState::Drifting => (circle_icon([0x4A, 0x90, 0xD8], 0xFF), false),
-        TrayState::Idle => (circle_icon([0x00, 0x00, 0x00], 0x59), true),
+        TrayState::Focused => (cube_icon([0x00, 0x00, 0x00], 0xFF), true),
+        TrayState::Drifting => (cube_icon([0x4A, 0x90, 0xD8], 0xFF), false),
+        TrayState::Idle => (cube_icon([0x00, 0x00, 0x00], 0x59), true),
     }
 }
 
-/// A 32x32 filled circle. For template icons macOS uses only the alpha
-/// channel, so `alpha` controls how dimmed the mark renders.
-fn circle_icon(rgb: [u8; 3], alpha: u8) -> Icon {
+/// The brand cube (the "Soft" mark from design/logo.svg) rasterized at 32px:
+/// hexagon silhouette + Y of inner edges, anti-aliased via distance to each
+/// stroke segment. For template icons macOS uses only the alpha channel, so
+/// `max_alpha` controls how dimmed the mark renders.
+fn cube_icon(rgb: [u8; 3], max_alpha: u8) -> Icon {
     const SIZE: u32 = 32;
+    // Logo-space geometry (viewBox 0..120), scaled to 32px below.
+    const SEGS: [[f32; 4]; 9] = [
+        [60.0, 24.0, 92.0, 42.5],
+        [92.0, 42.5, 92.0, 79.5],
+        [92.0, 79.5, 60.0, 98.0],
+        [60.0, 98.0, 28.0, 79.5],
+        [28.0, 79.5, 28.0, 42.5],
+        [28.0, 42.5, 60.0, 24.0],
+        [28.0, 42.5, 60.0, 61.0],
+        [92.0, 42.5, 60.0, 61.0],
+        [60.0, 61.0, 60.0, 98.0],
+    ];
+    // One pixel = this many logo units. The mark is centered at (60, 61) in
+    // a 0..120 viewBox; mapping 32px onto 0..124 logo units centers it with
+    // a 2-unit margin for the stroke caps.
+    const UNITS_PER_PX: f32 = 124.0 / SIZE as f32;
+    const HALF_W: f32 = 7.0; // stroke width 14 logo units — bolder at glyph size
+    let aa = UNITS_PER_PX; // ~1px anti-alias falloff
+
+    fn dist_to_seg(px: f32, py: f32, s: &[f32; 4]) -> f32 {
+        let (ax, ay, bx, by) = (s[0], s[1], s[2], s[3]);
+        let (dx, dy) = (bx - ax, by - ay);
+        let len2 = dx * dx + dy * dy;
+        let t = (((px - ax) * dx + (py - ay) * dy) / len2).clamp(0.0, 1.0);
+        let (cx, cy) = (ax + t * dx, ay + t * dy);
+        ((px - cx).powi(2) + (py - cy).powi(2)).sqrt()
+    }
+
     let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
-    let center = (SIZE as f32 - 1.0) / 2.0;
-    let radius = SIZE as f32 / 2.0 - 1.0;
     for y in 0..SIZE {
         for x in 0..SIZE {
-            let dx = x as f32 - center;
-            let dy = y as f32 - center;
-            if dx * dx + dy * dy <= radius * radius {
-                rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], alpha]);
-            } else {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
-            }
+            // Pixel center in logo units, shifted so (60, 61) lands mid-image.
+            let px = (x as f32 + 0.5) * UNITS_PER_PX + (60.0 - 62.0);
+            let py = (y as f32 + 0.5) * UNITS_PER_PX + (61.0 - 62.0);
+            let d = SEGS
+                .iter()
+                .map(|s| dist_to_seg(px, py, s))
+                .fold(f32::MAX, f32::min);
+            let coverage = ((HALF_W + aa - d) / aa).clamp(0.0, 1.0);
+            let a = (coverage * max_alpha as f32) as u8;
+            rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], a]);
         }
     }
     Icon::from_rgba(rgba, SIZE, SIZE).expect("valid 32x32 RGBA tray icon")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cube_glyph_renders_cube_shape() {
+        let icon = cube_icon([0, 0, 0], 0xFF);
+        // Icon doesn't expose pixels; re-render the alpha field directly for
+        // a shape sanity check: opaque at the top vertex and center spine,
+        // transparent at the corners.
+        drop(icon);
+        let sample = |x: u32, y: u32| -> bool {
+            const SEGS: [[f32; 4]; 9] = [
+                [60.0, 24.0, 92.0, 42.5],
+                [92.0, 42.5, 92.0, 79.5],
+                [92.0, 79.5, 60.0, 98.0],
+                [60.0, 98.0, 28.0, 79.5],
+                [28.0, 79.5, 28.0, 42.5],
+                [28.0, 42.5, 60.0, 24.0],
+                [28.0, 42.5, 60.0, 61.0],
+                [92.0, 42.5, 60.0, 61.0],
+                [60.0, 61.0, 60.0, 98.0],
+            ];
+            let units = 124.0 / 32.0;
+            let px = (x as f32 + 0.5) * units - 2.0;
+            let py = (y as f32 + 0.5) * units - 1.0;
+            let d = SEGS
+                .iter()
+                .map(|s| {
+                    let (ax, ay, bx, by) = (s[0], s[1], s[2], s[3]);
+                    let (dx, dy) = (bx - ax, by - ay);
+                    let t = (((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy))
+                        .clamp(0.0, 1.0);
+                    ((px - (ax + t * dx)).powi(2) + (py - (ay + t * dy)).powi(2)).sqrt()
+                })
+                .fold(f32::MAX, f32::min);
+            d < 7.0
+        };
+        assert!(sample(16, 6), "top vertex should be inked");
+        assert!(sample(16, 16), "center should be inked");
+        assert!(!sample(1, 1), "corner should be empty");
+        assert!(!sample(30, 30), "corner should be empty");
+    }
 }

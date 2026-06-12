@@ -117,6 +117,8 @@ enum DataCommands {
         #[arg(long, default_value = "1.0")]
         hours: f64,
     },
+    /// Show today's activity sessions (open and solidified)
+    Sessions,
     /// Delete events older than 14 days
     Prune,
     /// List corrections
@@ -271,6 +273,9 @@ async fn main() -> Result<()> {
             match command {
                 DataCommands::Activity { hours } => {
                     commands::activity::handle_recent(&root, hours).await?;
+                }
+                DataCommands::Sessions => {
+                    commands::activity::handle_sessions(&root).await?;
                 }
                 DataCommands::Prune => {
                     commands::activity::handle_prune(&root)?;

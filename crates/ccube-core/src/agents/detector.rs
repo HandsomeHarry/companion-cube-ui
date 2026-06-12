@@ -393,10 +393,15 @@ pub fn render_step1_prompt(briefing: &BriefingV2) -> String {
     let template = include_str!("../prompts/detector_v2_step1.md");
     let events_formatted = format_timeline_events(&briefing.events);
 
+    let current_activity = briefing
+        .current_activity
+        .as_deref()
+        .unwrap_or("(unknown — no session in progress)");
     let replacements: &[(&str, &str)] = &[
         ("{profile}", &briefing.memory.profile),
         ("{patterns}", &briefing.memory.patterns),
         ("{events}", &events_formatted),
+        ("{current_activity}", current_activity),
         ("{schema}", STEP1_SCHEMA_DESC),
     ];
 
@@ -509,9 +514,14 @@ pub fn render_step2_prompt(
     let annotated_formatted = format_annotated_events(&briefing.events, annotations);
     let rhythm = rhythm_notes.unwrap_or("no clear rhythm pattern detected");
 
+    let current_activity = briefing
+        .current_activity
+        .as_deref()
+        .unwrap_or("(unknown — no session in progress)");
     let replacements: &[(&str, &str)] = &[
         ("{profile}", &briefing.memory.profile),
         ("{patterns}", &briefing.memory.patterns),
+        ("{current_activity}", current_activity),
         ("{annotated_events}", &annotated_formatted),
         ("{rhythm_notes}", rhythm),
         ("{schema}", STEP2_SCHEMA_DESC),

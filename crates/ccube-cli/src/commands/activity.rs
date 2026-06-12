@@ -99,3 +99,47 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     }
 }
+
+/// `ccube data sessions` — today's activity sessions, open session first.
+/// Direct-DB read (sessions are local rows; no daemon required).
+pub async fn handle_sessions(root: &ccube_core::paths::DataRoot) -> anyhow::Result<()> {
+    let conn = ccube_core::db::open_events_db(&root.data_dir)?;
+    let range_key = format!("day:{}", chrono::Local::now().format("%Y-%m-%d"));
+    let sessions = ccube_core::db::list_sessions(&conn, &range_key)?;
+
+    if sessions.is_empty() {
+        println!("No sessions yet today. The daemon organizes activity every 5 minutes.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<5} {:<7} {:<13} {:>4}  {}",
+        "ID", "STATE", "SPAN", "EV", "LABEL"
+    );
+    println!("{}", "-".repeat(78));
+    for s in sessions {
+        let events = ccube_core::db::query_events_by_session(&conn, s.id)?;
+        let state = if s.open {
+            "open"
+        } else if s.pinned {
+            "pinned"
+        } else {
+            "closed"
+        };
+        let hm = |ts: i64| {
+            chrono::DateTime::from_timestamp_millis(ts)
+                .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
+                .unwrap_or_default()
+        };
+        let span = format!("{}–{}", hm(s.start_ts), hm(s.end_ts));
+        println!(
+            "{:<5} {:<7} {:<13} {:>4}  {}",
+            s.id,
+            state,
+            span,
+            events.len(),
+            truncate(&s.label, 46)
+        );
+    }
+    Ok(())
+}

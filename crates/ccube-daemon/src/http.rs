@@ -384,7 +384,11 @@ async fn get_briefing(
     let events = db::query_recent_events(&conn, since_ms).map_err(ApiError::internal)?;
 
     let mem = state.memory_snapshot();
-    let b = briefing::build_v2(now_ms, &events, &mem.profile, &mem.patterns, &[]);
+    let current_activity = db::get_open_session(&conn, &day_range_key(now_ms))
+        .ok()
+        .flatten()
+        .map(|s| s.label);
+    let b = briefing::build_v2(now_ms, &events, &mem.profile, &mem.patterns, &[], current_activity);
 
     Ok(Json(b))
 }
@@ -403,7 +407,11 @@ async fn detect(
     let events = db::query_recent_events(&conn, since_ms).map_err(ApiError::internal)?;
 
     let mem = state.memory_snapshot();
-    let briefing = briefing::build_v2(now_ms, &events, &mem.profile, &mem.patterns, &[]);
+    let current_activity = db::get_open_session(&conn, &day_range_key(now_ms))
+        .ok()
+        .flatten()
+        .map(|s| s.label);
+    let briefing = briefing::build_v2(now_ms, &events, &mem.profile, &mem.patterns, &[], current_activity);
 
     let mut output = detector::run_v2(&briefing, state.llm.as_ref()).await;
     let duration_ms = start.elapsed().as_millis() as i64;
@@ -921,15 +929,287 @@ fn extract_json(text: &str) -> String {
     fixed
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-struct LlmSessionGroup {
-    title: String,
-    event_ids: Vec<i64>,
+/// One numbered line of event context for an LLM prompt.
+fn format_event_line(n: Option<usize>, event: &ccube_core::db::EventRow) -> String {
+    let time = chrono::DateTime::from_timestamp_millis(event.ts)
+        .map(|t| t.with_timezone(&chrono::Local).format("%H:%M").to_string())
+        .unwrap_or_default();
+    let app = event.app.as_deref().unwrap_or("-");
+    let title = event.title.as_deref().unwrap_or("-");
+    let dur = event
+        .duration_ms
+        .map(|d| format!("{}s", d / 1000))
+        .unwrap_or_else(|| "?s".to_string());
+    let ocr = event
+        .ocr_text
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .map(|t| format!(" | Screen: {}", &t[..t.floor_char_boundary(120)]))
+        .unwrap_or_default();
+    let vision = event
+        .vision_desc
+        .as_deref()
+        .filter(|d| !d.is_empty())
+        .map(|d| format!(" | Vision: {}", d))
+        .unwrap_or_default();
+    let prefix = n.map(|n| format!("{n}. ")).unwrap_or_else(|| "- ".to_string());
+    format!("{prefix}[{time}] {app} – {title} ({dur}){ocr}{vision}")
+}
+
+/// The LLM's verdict on a batch of new events vs. the open session.
+#[derive(Debug, PartialEq)]
+struct MembershipDecision {
+    /// Events 1..=k of the batch belong to the current activity.
+    continue_through: usize,
+    /// Refreshed (or, for a new session, initial) activity label.
+    label: Option<String>,
     distraction: bool,
-    /// Per-event context descriptions, keyed by event number (1-based).
-    /// Maps event_id -> short description of what the user was doing.
-    #[serde(default)]
-    descriptions: std::collections::HashMap<String, String>,
+    /// Per-event descriptions, keyed by 1-based batch index.
+    descriptions: Vec<(usize, String)>,
+}
+
+impl MembershipDecision {
+    /// Fallback when the LLM is unreachable or unparseable: absorb the whole
+    /// batch silently rather than re-sending it every five minutes.
+    fn absorb_all(batch_len: usize) -> Self {
+        Self {
+            continue_through: batch_len,
+            label: None,
+            distraction: false,
+            descriptions: Vec::new(),
+        }
+    }
+}
+
+/// Parse the membership JSON leniently (Ollama ignores grammars; small
+/// models emit numbers as strings and skip fields).
+fn parse_membership(json: &str, batch_len: usize, has_open: bool) -> MembershipDecision {
+    let v: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(_) => return MembershipDecision::absorb_all(batch_len),
+    };
+
+    let as_usize = |v: &serde_json::Value| -> Option<usize> {
+        match v {
+            serde_json::Value::Number(n) => n.as_i64().map(|n| n.max(0) as usize),
+            serde_json::Value::String(s) => s.trim().parse::<i64>().ok().map(|n| n.max(0) as usize),
+            _ => None,
+        }
+    };
+
+    let mut k = v
+        .get("continue_through")
+        .and_then(as_usize)
+        .unwrap_or(batch_len)
+        .min(batch_len);
+    // A fresh activity owns at least its first event, or we'd never progress.
+    if !has_open && k == 0 {
+        k = 1;
+    }
+
+    let label = v
+        .get("label")
+        .and_then(|l| l.as_str())
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from);
+
+    let distraction = v
+        .get("distraction")
+        .map(|d| d.as_bool().unwrap_or(d.as_str() == Some("true")))
+        .unwrap_or(false);
+
+    let descriptions = v
+        .get("descriptions")
+        .and_then(|d| d.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(key, val)| {
+                    let idx = key.trim().parse::<usize>().ok()?;
+                    let desc = val.as_str()?.trim();
+                    ((1..=batch_len).contains(&idx) && !desc.is_empty())
+                        .then(|| (idx, desc.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    MembershipDecision {
+        continue_through: k,
+        label,
+        distraction,
+        descriptions,
+    }
+}
+
+const LABEL_EXAMPLES: &str = r#""terminal — working on companion cube"
+"browsing dieter rams design rules and projects"
+"working on history essay while watching history videos and reading papers""#;
+
+/// Prompt asking where the current activity ends within a batch of new events.
+fn build_membership_prompt(
+    open: Option<(&str, &[ccube_core::db::EventRow])>,
+    batch: &[ccube_core::db::EventRow],
+    corrections: &[String],
+) -> String {
+    let numbered: Vec<String> = batch
+        .iter()
+        .enumerate()
+        .map(|(i, e)| format_event_line(Some(i + 1), e))
+        .collect();
+
+    let corrections_section = if corrections.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nThe user has corrected past grouping — learn from these:\n{}\n",
+            corrections
+                .iter()
+                .map(|c| format!("- {c}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
+
+    match open {
+        Some((label, tail)) => {
+            let tail_lines: Vec<String> =
+                tail.iter().map(|e| format_event_line(None, e)).collect();
+            format!(
+                r#"You maintain a person's computer activity timeline by deciding where one activity ends and the next begins.
+
+CURRENT ACTIVITY: "{label}"
+Its latest events:
+{tail}
+
+NEW EVENTS (oldest first):
+{events}
+
+How many of the new events (counting from 1) still belong to the current activity? People interleave: quick message checks, reference lookups, and videos that serve the same purpose all stay in ONE activity. It ends only when the person clearly moves on to something unrelated.
+{corrections}
+Reply with ONLY this JSON:
+{{"continue_through": <number of the last belonging event, 0 if even the first starts something new>,
+ "label": "<improved label for the current activity, given what you now know>",
+ "distraction": <true if it is entertainment or aimless browsing>,
+ "descriptions": {{"1": "<3-8 specific words>", "2": "..."}}}}
+
+Labels name the purpose with its context, like:
+{examples}"#,
+                label = label,
+                tail = tail_lines.join("\n"),
+                events = numbered.join("\n"),
+                corrections = corrections_section,
+                examples = LABEL_EXAMPLES,
+            )
+        }
+        None => format!(
+            r#"You maintain a person's computer activity timeline by deciding where one activity ends and the next begins.
+
+EVENTS (oldest first):
+{events}
+
+These begin a new activity. How many of them (counting from 1) belong to that first activity, before the person moves on to something different? People interleave: quick message checks, reference lookups, and videos that serve the same purpose all stay in ONE activity.
+{corrections}
+Reply with ONLY this JSON:
+{{"continue_through": <number of the last event still in the first activity>,
+ "label": "<specific label for the first activity>",
+ "distraction": <true if it is entertainment or aimless browsing>,
+ "descriptions": {{"1": "<3-8 specific words>", "2": "..."}}}}
+
+Labels name the purpose with its context, like:
+{examples}"#,
+            events = numbered.join("\n"),
+            corrections = corrections_section,
+            examples = LABEL_EXAMPLES,
+        ),
+    }
+}
+
+/// Prompt for the final label when a session solidifies.
+fn build_solidify_prompt(working_label: &str, events: &[ccube_core::db::EventRow]) -> String {
+    let lines: Vec<String> = events
+        .iter()
+        .map(|e| {
+            let desc = e
+                .llm_desc
+                .as_deref()
+                .or(e.vision_desc.as_deref())
+                .or(e.title.as_deref())
+                .unwrap_or("-");
+            let app = e.app.as_deref().unwrap_or("-");
+            let mins = e.duration_ms.unwrap_or(0) / 60_000;
+            format!("- {app} – {desc} ({mins}m)")
+        })
+        .collect();
+    format!(
+        r#"This activity is finished. Name it in ONE specific phrase: the purpose with its context, like:
+{LABEL_EXAMPLES}
+
+Working label: "{working_label}"
+Everything that happened (oldest first):
+{events}
+
+Reply with ONLY: {{"label": "<final name>", "distraction": <true|false>}}"#,
+        events = lines.join("\n"),
+    )
+}
+
+/// Ask the LLM for a finished session's final label. Pure: no DB handle is
+/// held across the await (rusqlite's Connection is not Sync, so a borrow
+/// alive across an await would make the whole future !Send).
+async fn solidify_label(
+    llm: &dyn LlmBackend,
+    working_label: &str,
+    events: &[ccube_core::db::EventRow],
+) -> (Option<String>, Option<bool>) {
+    if events.is_empty() {
+        return (None, None);
+    }
+    let prompt = build_solidify_prompt(working_label, events);
+    match llm.complete(&prompt, "", 512, SUMMARIZE_TEMPERATURE).await {
+        Ok(resp) => {
+            match serde_json::from_str::<serde_json::Value>(&extract_json(resp.content.trim())) {
+                Ok(v) => (
+                    v.get("label")
+                        .and_then(|l| l.as_str())
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty())
+                        .map(String::from),
+                    v.get("distraction").and_then(|d| d.as_bool()),
+                ),
+                Err(_) => (None, None),
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "solidify label failed; keeping working label");
+            (None, None)
+        }
+    }
+}
+
+/// Close a session with the solidify verdict. Label failure never blocks
+/// the close — the working label is kept.
+fn finish_close(
+    conn: &ccube_core::db::Connection,
+    session: &ccube_core::db::SessionRow,
+    final_label: Option<String>,
+    distraction: Option<bool>,
+) {
+    if let Err(e) = db::close_session(conn, session.id, final_label.as_deref()) {
+        tracing::error!(error = %e, session_id = session.id, "failed to close session");
+        return;
+    }
+    if let Some(d) = distraction {
+        let _ = conn.execute(
+            "UPDATE sessions SET distraction = ?2 WHERE id = ?1 AND pinned = 0",
+            (session.id, d),
+        );
+    }
+    tracing::info!(
+        session_id = session.id,
+        label = %final_label.as_deref().unwrap_or(&session.label),
+        "session solidified"
+    );
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -941,6 +1221,8 @@ pub struct SessionGroupWithEvents {
     pub distraction: bool,
     /// User-touched sessions are pinned; organize passes never modify them.
     pub pinned: bool,
+    /// Still absorbing new events — the live head of the timeline.
+    pub open: bool,
     pub events: Vec<ccube_core::db::EventRow>,
     pub total_duration_ms: i64,
 }
@@ -952,7 +1234,7 @@ pub struct SummariesResponse {
 }
 
 /// Canonical day range key for a timestamp, in local time.
-fn day_range_key(ts_ms: i64) -> String {
+pub(crate) fn day_range_key(ts_ms: i64) -> String {
     let dt = chrono::DateTime::from_timestamp_millis(ts_ms)
         .map(|t| t.with_timezone(&chrono::Local))
         .unwrap_or_else(chrono::Local::now);
@@ -997,6 +1279,7 @@ fn load_sessions_response(
             title: s.label,
             distraction: s.distraction,
             pinned: s.pinned,
+            open: s.open,
             events,
             total_duration_ms,
         });
@@ -1041,7 +1324,7 @@ fn build_summarize_prompt(events: &[ccube_core::db::EventRow], corrections: &[St
             .unwrap_or_default();
 
         lines.push(format!(
-            "{}. [{}] {} \u{2013} {} ({}){}{}",
+            "{}. [{}] {} – {} ({}){}{}",
             i + 1,
             time,
             app,
@@ -1143,6 +1426,20 @@ pub async fn run_summarize(
         })
         .collect();
 
+    // Lifecycle that must run even when no new events arrived:
+    // day rollover, and an AFK/sleep break after the open session's last
+    // event solidifies it (the user left; the activity is over).
+    db::close_stale_open_sessions(&conn, &range_key).map_err(ApiError::internal)?;
+    let mut open = db::get_open_session(&conn, &range_key).map_err(ApiError::internal)?;
+    if let Some(ref s) = open
+        && break_ts.iter().any(|&b| b > s.end_ts)
+    {
+        let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
+        let (label, distraction) = solidify_label(state.llm.as_ref(), &s.label, &members).await;
+        finish_close(&conn, s, if s.pinned { None } else { label }, distraction);
+        open = None;
+    }
+
     if events.is_empty() {
         return load_sessions_response(&conn, &range_key);
     }
@@ -1170,153 +1467,134 @@ pub async fn run_summarize(
         .collect();
 
     const BATCH_SIZE: usize = 40;
+
     let segments = split_at_breaks(events, &break_ts, MAX_SESSION_GAP_MS);
 
-    // Phase 1 — LLM, with no DB lock held (a transaction across minute-long
-    // LLM awaits would block the capture loop's writes). Indices in each
-    // prompt are 1-based *within that chunk*; resolving them against the
-    // global event list mislabeled every chunk after the first — the source
-    // of the wrong per-event descriptions in History.
-    struct PendingSession {
-        title: String,
-        distraction: bool,
-        /// (event_id, ts, description)
-        members: Vec<(i64, i64, Option<String>)>,
-    }
-    // Per segment: proposed sessions + events the LLM skipped.
-    let mut pending: Vec<(Vec<PendingSession>, Vec<(i64, i64)>)> = Vec::new();
-
     for segment in &segments {
-        let mut sessions: Vec<PendingSession> = Vec::new();
-        let mut used = std::collections::HashSet::<i64>::new();
-
-        for chunk in segment.chunks(BATCH_SIZE) {
-            let prompt = build_summarize_prompt(chunk, &corrections);
-
-            let response = state
-                .llm
-                .complete(&prompt, "", SUMMARIZE_MAX_TOKENS, SUMMARIZE_TEMPERATURE)
-                .await
-                .map_err(|e| ApiError::internal(format!("LLM call failed: {e}")))?;
-
-            let json_str = extract_json(response.content.trim());
-
-            #[derive(Deserialize)]
-            struct SummarizeOutput {
-                groups: Vec<LlmSessionGroup>,
+        // The open session only survives into a segment it is contiguous
+        // with: any break marker or long gap in between solidifies it.
+        if let Some(ref s) = open {
+            let first_ts = segment.first().map(|e| e.ts).unwrap_or(now);
+            let break_between = break_ts.iter().any(|&b| b > s.end_ts && b <= first_ts);
+            if break_between || first_ts.saturating_sub(s.end_ts) > MAX_SESSION_GAP_MS {
+                let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
+                let (label, distraction) =
+                    solidify_label(state.llm.as_ref(), &s.label, &members).await;
+                finish_close(&conn, s, if s.pinned { None } else { label }, distraction);
+                open = None;
             }
+        }
 
-            let output = match serde_json::from_str::<SummarizeOutput>(&json_str) {
-                Ok(o) => o,
+        let mut idx = 0usize;
+        while idx < segment.len() {
+            let batch = &segment[idx..(idx + BATCH_SIZE).min(segment.len())];
+
+            // Context for the judgment: the open session's label and its
+            // most recent members.
+            let open_tail: Option<(String, Vec<ccube_core::db::EventRow>)> = match open {
+                Some(ref s) => {
+                    let members =
+                        db::query_events_by_session(&conn, s.id).map_err(ApiError::internal)?;
+                    let tail: Vec<_> = members.into_iter().rev().take(5).rev().collect();
+                    Some((s.label.clone(), tail))
+                }
+                None => None,
+            };
+
+            let prompt = build_membership_prompt(
+                open_tail.as_ref().map(|(l, t)| (l.as_str(), t.as_slice())),
+                batch,
+                &corrections,
+            );
+            let decision = match state
+                .llm
+                .complete(&prompt, "", 4096, SUMMARIZE_TEMPERATURE)
+                .await
+            {
+                Ok(resp) => {
+                    parse_membership(&extract_json(resp.content.trim()), batch.len(), open.is_some())
+                }
                 Err(e) => {
-                    tracing::warn!(error = %e, "Failed to parse LLM batch response, skipping batch");
-                    continue;
+                    tracing::warn!(error = %e, "membership pass failed; absorbing batch");
+                    MembershipDecision::absorb_all(batch.len())
                 }
             };
 
-            for group in output.groups {
-                let mut members = Vec::new();
-                for &llm_id in &group.event_ids {
-                    if llm_id < 1 {
-                        continue;
+            // Persist this batch's outcome atomically. The transaction is
+            // scoped to a block: its binding must be dead before the next
+            // await or the spawned future stops being Send.
+            let k = decision.continue_through;
+            let joining = &batch[..k];
+            let session_id = {
+            let tx = conn.unchecked_transaction().map_err(ApiError::internal)?;
+            let session_id = match open {
+                Some(ref s) => {
+                    if k > 0 && let Some(ref label) = decision.label {
+                        db::update_open_label(&tx, s.id, label).map_err(ApiError::internal)?;
                     }
-                    let idx = (llm_id - 1) as usize;
-                    if idx < chunk.len() {
-                        let event = &chunk[idx];
-                        if used.insert(event.id) {
-                            members.push((
-                                event.id,
-                                event.ts,
-                                group.descriptions.get(&llm_id.to_string()).cloned(),
-                            ));
-                        }
-                    }
+                    s.id
                 }
-                if !members.is_empty() {
-                    sessions.push(PendingSession {
-                        title: group.title,
-                        distraction: group.distraction,
-                        members,
-                    });
+                None => {
+                    let label = decision.label.as_deref().unwrap_or("Activity");
+                    let lo = joining.first().map(|e| e.ts).unwrap_or(now);
+                    let hi = joining.last().map(|e| e.ts).unwrap_or(now);
+                    db::create_session(
+                        &tx,
+                        &range_key,
+                        label,
+                        lo,
+                        hi,
+                        decision.distraction,
+                        "llm",
+                        true,
+                    )
+                    .map_err(ApiError::internal)?
                 }
-            }
-        }
-
-        let stragglers: Vec<(i64, i64)> = segment
-            .iter()
-            .filter(|e| !used.contains(&e.id))
-            .map(|e| (e.id, e.ts))
-            .collect();
-        pending.push((sessions, stragglers));
-    }
-
-    // Phase 2 — persist everything in one transaction (fast writes only):
-    // a 100-event pass is otherwise 200+ autocommit fsyncs, and a crash
-    // mid-loop would leave a half-assigned group behind.
-    let tx = conn.unchecked_transaction().map_err(ApiError::internal)?;
-    for (sessions, stragglers) in &pending {
-        let mut bounds: Vec<(i64, i64, i64)> = Vec::new(); // (session_id, lo, hi)
-
-        for s in sessions {
-            let lo = s.members.iter().map(|(_, ts, _)| *ts).min().unwrap_or(now);
-            let hi = s.members.iter().map(|(_, ts, _)| *ts).max().unwrap_or(now);
-            let sid = db::create_session(
-                &tx,
-                &range_key,
-                &s.title,
-                lo,
-                hi,
-                s.distraction,
-                "llm",
-            )
-            .map_err(ApiError::internal)?;
-
-            for (event_id, _, desc) in &s.members {
-                db::assign_event_session(&tx, *event_id, Some(sid))
-                    .map_err(ApiError::internal)?;
-                if let Some(desc) = desc {
-                    db::update_event_llm_desc(&tx, *event_id, desc)
-                        .map_err(ApiError::internal)?;
-                }
-            }
-            bounds.push((sid, lo, hi));
-        }
-
-        // Stragglers attach to the nearest session created in this segment —
-        // never across a break, never to a pinned session.
-        if !bounds.is_empty() {
-            for &(event_id, ts) in stragglers {
-                let best = bounds
-                    .iter()
-                    .min_by_key(|(_, lo, hi)| {
-                        if ts >= *lo && ts <= *hi {
-                            0
-                        } else if ts < *lo {
-                            lo - ts
-                        } else {
-                            ts - hi
-                        }
-                    })
-                    .map(|(sid, _, _)| *sid);
-                if let Some(sid) = best {
-                    db::assign_event_session(&tx, event_id, Some(sid))
-                        .map_err(ApiError::internal)?;
-                }
-            }
-        } else if !stragglers.is_empty() {
-            // The LLM produced nothing usable for this segment: one fallback
-            // session so its events aren't re-sent every 5 minutes.
-            let lo = stragglers.iter().map(|&(_, ts)| ts).min().unwrap_or(now);
-            let hi = stragglers.iter().map(|&(_, ts)| ts).max().unwrap_or(now);
-            let sid = db::create_session(&tx, &range_key, "Activity", lo, hi, false, "llm")
-                .map_err(ApiError::internal)?;
-            for &(event_id, _) in stragglers {
-                db::assign_event_session(&tx, event_id, Some(sid))
+            };
+            for e in joining {
+                db::assign_event_session(&tx, e.id, Some(session_id))
                     .map_err(ApiError::internal)?;
             }
+            // Descriptions cover the whole batch; events past k keep theirs
+            // for when the next iteration assigns them.
+            for (i, desc) in &decision.descriptions {
+                if let Some(e) = batch.get(i - 1) {
+                    db::update_event_llm_desc(&tx, e.id, desc).map_err(ApiError::internal)?;
+                }
+            }
+            tx.commit().map_err(ApiError::internal)?;
+            session_id
+            };
+
+            open = db::get_session(&conn, session_id).map_err(ApiError::internal)?;
+
+            if k < batch.len() {
+                // The activity ended inside this batch: solidify, and let the
+                // next iteration open a new session for the remainder.
+                if let Some(ref s) = open {
+                    let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
+                    let (label, distraction) =
+                        solidify_label(state.llm.as_ref(), &s.label, &members).await;
+                    finish_close(&conn, s, if s.pinned { None } else { label }, distraction);
+                }
+                open = None;
+            }
+            // k == 0 only happens when an open session rejected the whole
+            // batch; it was just solidified, so re-running the same batch
+            // with no open session is guaranteed to absorb at least one
+            // event (parse_membership forces k >= 1 then).
+            idx += k;
         }
     }
-    tx.commit().map_err(ApiError::internal)?;
+
+    // Past days never keep an open session — only today is still happening.
+    if range_key != day_range_key(now)
+        && let Some(ref s) = open
+    {
+        let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
+        let (label, distraction) = solidify_label(state.llm.as_ref(), &s.label, &members).await;
+        finish_close(&conn, s, if s.pinned { None } else { label }, distraction);
+    }
 
     load_sessions_response(&conn, &range_key)
 }
@@ -1442,6 +1720,7 @@ async fn create_group_correction(
                 event.ts,
                 false,
                 "user",
+                false,
             )
             .map_err(ApiError::internal)?
         }
@@ -1535,6 +1814,34 @@ mod tests {
             session_id: None,
             llm_desc: None,
         }
+    }
+
+    #[test]
+    fn membership_lenient_parse() {
+        let d = parse_membership(
+            r#"{"continue_through":"3","label":" terminal — working on companion cube ","distraction":false,"descriptions":{"1":"editing rust code","9":"out of range","2":""}}"#,
+            5,
+            true,
+        );
+        assert_eq!(d.continue_through, 3);
+        assert_eq!(d.label.as_deref(), Some("terminal — working on companion cube"));
+        let mut descs = d.descriptions.clone();
+        descs.sort();
+        assert_eq!(descs, vec![(1, "editing rust code".to_string())]);
+    }
+
+    #[test]
+    fn membership_clamps_and_forces_progress() {
+        // over-long k clamps to batch size
+        assert_eq!(parse_membership(r#"{"continue_through":99}"#, 4, true).continue_through, 4);
+        // an open session may reject everything
+        assert_eq!(parse_membership(r#"{"continue_through":0}"#, 4, true).continue_through, 0);
+        // ...but a fresh activity must absorb at least its first event
+        assert_eq!(parse_membership(r#"{"continue_through":0}"#, 4, false).continue_through, 1);
+        // garbage absorbs everything rather than churning
+        let d = parse_membership("not json", 4, true);
+        assert_eq!(d.continue_through, 4);
+        assert!(d.label.is_none());
     }
 
     #[test]

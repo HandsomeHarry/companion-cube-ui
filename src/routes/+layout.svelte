@@ -161,6 +161,9 @@
     e => !groupedEventIds.has(e.id) && (e.kind === 'app_focus' || e.kind === 'idle_start')
   );
 
+  // The open session is the live head: new events visually flow into it.
+  $: openGroup = displayGroups.find(g => g.open && isSameDay(selectedDate, today));
+
   /** Human label for an event row. */
   function eventLabel(e: EventRow): string {
     if (e.kind === 'idle_start') return 'Away';
@@ -577,8 +580,9 @@
       {#if $error}
         <p class="error-msg">{$error}</p>
       {:else if displayGroups.length > 0 || ungroupedEvents.length > 0}
-        <!-- LIVE HEAD — events not yet organized into a session -->
-        {#if ungroupedEvents.length > 0}
+        <!-- LIVE HEAD — events not yet organized into a session. Only
+             rendered when no open session exists to absorb them visually. -->
+        {#if !openGroup && ungroupedEvents.length > 0}
           <div class="tl-group tl-group--live">
             <div class="tl-gutter">
               <span class="tl-gutter__time">{formatTime(ungroupedEvents[0]?.ts ?? Date.now())}</span>
@@ -626,11 +630,12 @@
           {#each displayGroups as group (group.id)}
             <div class="tl-group"
               class:drag-over={dragOverTarget === group.id}
+              class:tl-group--open={group.open}
               data-session-id={group.id}
             >
               <div class="tl-gutter">
                 <span class="tl-gutter__time">{formatTime(group.events[group.events.length - 1]?.ts ?? Date.now())}</span>
-                <span class="tl-gutter__dot" class:distraction={group.distraction}></span>
+                <span class="tl-gutter__dot" class:distraction={group.distraction} class:tl-gutter__dot--live={group.open}></span>
               </div>
               <div class="tl-body">
                 <div class="tl-header" role="button" tabindex="0" on:click={() => toggleGroup(group.id)} on:keydown={handleGroupKeydown}>
@@ -649,6 +654,9 @@
                     <span class="tl-header__title" class:distraction={group.distraction}>
                       {group.title}
                     </span>
+                    {#if group.open}
+                      <span class="tl-header__now" title="This session is still going — new activity joins it">now</span>
+                    {/if}
                     {#if group.pinned}
                       <span class="tl-header__pin" title="You've edited this session — auto-organize won't change it">⌖</span>
                     {/if}
@@ -680,6 +688,23 @@
                         <span class="tl-item__handle" class:active-drag={isDragging && dragState?.event.id === event.id} role="button" tabindex="-1" on:mousedown={(e) => startDrag(e, event, group.id)} on:click|stopPropagation title="Drag to another group">≡</span>
                       </div>
                     {/each}
+                    {#if group.open}
+                      {#each ungroupedEvents as event (event.id)}
+                        <div class="tl-item tl-item--pending"
+                          on:click={() => openEvent(event)}
+                          on:keydown={(e) => { if (e.key === 'Enter') openEvent(event); }}
+                          role="button"
+                          tabindex="0"
+                        >
+                          <span class="tl-item__bullet">·</span>
+                          <span class="tl-item__app" class:away={event.kind === 'idle_start'}>{eventLabel(event)}</span>
+                          <span class="tl-item__title">– {cleanDesc(event.llm_desc, cleanDesc(event.vision_desc, event.title))}</span>
+                          {#if event.duration_ms}
+                            <span class="tl-item__dur">{formatDuration(event.duration_ms)}</span>
+                          {/if}
+                        </div>
+                      {/each}
+                    {/if}
                   </div>
                 {/if}
               </div>
@@ -1196,6 +1221,21 @@
 
   .tl-item__bullet { color: var(--ink-faint); font-size: 16px; }
   .tl-item__app { font-weight: 600; }
+
+  /* The open (live) session */
+  .tl-header__now {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border: 1px solid var(--divider);
+    border-radius: var(--r-pill);
+    padding: 1px 7px;
+    cursor: default;
+  }
+
+  .tl-item--pending { opacity: 0.55; }
 
   /* Away rows read as seams, not activities */
   .tl-item__app.away,

@@ -101,12 +101,19 @@ async fn run_detector(state: &AppState, trigger: &str) {
     // Build v2 briefing from a fresh memory snapshot, so curator/reflector
     // commits take effect on the next detector run without a restart.
     let mem = state.memory_snapshot();
+    // The open session's label is the user's inferred intention — the
+    // reference point that makes "drift" decidable.
+    let current_activity = db::get_open_session(&conn, &crate::http::day_range_key(now_ms))
+        .ok()
+        .flatten()
+        .map(|s| s.label);
     let briefing = briefing::build_v2(
         now_ms,
         &events,
         &mem.profile,
         &mem.patterns,
         &[], // vault_today: not implemented until later phases
+        current_activity,
     );
 
     // Run v2 two-step detector agent

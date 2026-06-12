@@ -29,6 +29,8 @@ export interface SessionGroup {
   distraction: boolean;
   /** User-touched; organize passes never modify pinned sessions. */
   pinned: boolean;
+  /** Still absorbing new events — the live head of the timeline. */
+  open: boolean;
   events: EventRow[];
   total_duration_ms: number;
 }
