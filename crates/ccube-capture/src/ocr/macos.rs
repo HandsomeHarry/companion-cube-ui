@@ -6,15 +6,30 @@ use anyhow::Result;
 use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 
+// Without this the Vision classes simply don't exist at runtime —
+// objc::runtime::Class::get("VNImageRequestHandler") returns None and OCR
+// silently never works. An empty extern block is enough to force linkage.
+#[link(name = "Vision", kind = "framework")]
+unsafe extern "C" {}
+
 use super::OcrEngine;
 
 pub struct MacOcrEngine;
 
 impl OcrEngine for MacOcrEngine {
     fn extract_text(&self, image_data: &[u8]) -> Result<String> {
+        if image_data.is_empty() {
+            anyhow::bail!("empty image data");
+        }
         let _pool = unsafe { AutoreleasePool::new() };
 
-        unsafe { vision_ocr_inner(image_data) }
+        // Vision throws ObjC exceptions on malformed input; a foreign
+        // exception crossing into Rust aborts the daemon, so catch at the
+        // language boundary and convert to Err (same as capture_screenshot).
+        objc2::exception::catch(std::panic::AssertUnwindSafe(|| unsafe {
+            vision_ocr_inner(image_data)
+        }))
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Vision OCR threw: {e:?}")))
     }
 }
 
@@ -41,7 +56,8 @@ unsafe fn vision_ocr_inner(image_data: &[u8]) -> Result<String> {
     // VNImageRequestHandler initWithData:options:
     // options is an NSDictionary — pass nil for empty options
     let nil_dict: *mut Object = std::ptr::null_mut();
-    let handler: *mut Object = msg_send![handler_class, initWithData: nsdata options: nil_dict];
+    let handler_alloc: *mut Object = msg_send![handler_class, alloc];
+    let handler: *mut Object = msg_send![handler_alloc, initWithData: nsdata options: nil_dict];
     if handler.is_null() {
         anyhow::bail!("failed to create VNImageRequestHandler");
     }
@@ -54,14 +70,15 @@ unsafe fn vision_ocr_inner(image_data: &[u8]) -> Result<String> {
         ),
     };
 
-    let nil_handler: *const std::ffi::c_void = std::ptr::null();
-    let request: *mut Object = msg_send![request_class, initWithCompletionHandler: nil_handler];
+    let request_alloc: *mut Object = msg_send![request_class, alloc];
+    let request: *mut Object = msg_send![request_alloc, init];
     if request.is_null() {
+        let _: () = msg_send![handler, release];
         anyhow::bail!("failed to create VNRecognizeTextRequest");
     }
 
-    // Set recognition level to accurate (1 = VNRequestTextRecognitionLevelAccurate)
-    let _: () = msg_send![request, setRecognitionLevel: 1];
+    // VNRequestTextRecognitionLevelAccurate = 0 (Fast = 1)
+    let _: () = msg_send![request, setRecognitionLevel: 0i64];
 
     // 4. Perform the request
     // performRequests:error: takes an NSArray of requests and an NSError* pointer
@@ -78,17 +95,21 @@ unsafe fn vision_ocr_inner(image_data: &[u8]) -> Result<String> {
         } else {
             "unknown error".to_string()
         };
+        let _: () = msg_send![request, release];
+        let _: () = msg_send![handler, release];
         anyhow::bail!("VNImageRequestHandler performRequests failed: {}", desc);
     }
 
     // 5. Extract results from the request
     let results: *mut Object = msg_send![request, results];
-    if results.is_null() {
-        return Ok(String::new());
-    }
-
-    let count: usize = msg_send![results, count];
+    let count: usize = if results.is_null() {
+        0
+    } else {
+        msg_send![results, count]
+    };
     if count == 0 {
+        let _: () = msg_send![request, release];
+        let _: () = msg_send![handler, release];
         return Ok(String::new());
     }
 
@@ -117,7 +138,10 @@ unsafe fn vision_ocr_inner(image_data: &[u8]) -> Result<String> {
         }
     }
 
-    Ok(text_parts.join("\n"))
+    let text = text_parts.join("\n");
+    let _: () = msg_send![request, release];
+    let _: () = msg_send![handler, release];
+    Ok(text)
     }
 }
 
@@ -127,26 +151,15 @@ unsafe fn nsstring_to_string(nsstring: *mut Object) -> Option<String> {
     if nsstring.is_null() {
         return None;
     }
-    // NSUTF8StringEncoding = 4
-    let len: usize = msg_send![nsstring, lengthOfBytesUsingEncoding: 4usize];
-    if len == 0 {
-        return Some(String::new());
-    }
-    let mut buf = vec![0u8; len];
-    let mut used_length: usize = 0;
-    let ok: bool = msg_send![
-        nsstring,
-        getBytes: buf.as_mut_ptr() as *mut std::ffi::c_void
-        maxLength: len
-        encoding: 4usize
-        usedLength: &mut used_length as *mut _
-        lossyConversion: true
-    ];
-    if !ok {
+    let cstr: *const std::os::raw::c_char = msg_send![nsstring, UTF8String];
+    if cstr.is_null() {
         return None;
     }
-    buf.truncate(used_length);
-    Some(String::from_utf8_lossy(&buf).to_string())
+    Some(
+        std::ffi::CStr::from_ptr(cstr)
+            .to_string_lossy()
+            .into_owned(),
+    )
     }
 }
 

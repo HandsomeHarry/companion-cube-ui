@@ -68,6 +68,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .route("/llm/health", get(llm_health))
+        .route("/capture/health", get(capture_health))
         .route("/notify/test", post(notify_test))
         .route("/activity", get(activity))
         .route("/briefing", get(get_briefing))
@@ -260,6 +261,24 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
 async fn notify_test() -> Json<serde_json::Value> {
     crate::notify::send_nudge(0, "Notifications are working — this is what a nudge looks like.");
     Json(serde_json::json!({ "status": "sent" }))
+}
+
+/// GET /capture/health — what the capture layer is allowed to see. The UI
+/// shows a quiet hint when permissions are missing, because silently blind
+/// capture produces mush labels and an undecidable detector.
+async fn capture_health() -> Json<serde_json::Value> {
+    #[cfg(target_os = "macos")]
+    let (accessibility, screen_recording) = (
+        ccube_capture::macos::accessibility_permission_now(),
+        ccube_capture::macos::screen_permission_now(),
+    );
+    #[cfg(not(target_os = "macos"))]
+    let (accessibility, screen_recording) = (true, true);
+
+    Json(serde_json::json!({
+        "accessibility": accessibility,
+        "screen_recording": screen_recording,
+    }))
 }
 
 /// GET /llm/health — probe the configured LLM backend (2s timeout).

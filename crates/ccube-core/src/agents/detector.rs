@@ -270,11 +270,17 @@ fn format_timeline_events(events: &[crate::briefing::TimelineEvent]) -> String {
                 .map(|u| format!(" | url: {}", u))
                 .unwrap_or_default();
             let title = e.title.as_deref().unwrap_or("(no title)");
+            let vision_line = e
+                .vision_desc
+                .as_deref()
+                .filter(|v| !v.is_empty())
+                .map(|v| format!(" | seen on screen: {v}"))
+                .unwrap_or_default();
             // event_ts is printed explicitly so the model can echo the exact
             // integer in its annotations (Ollama cannot enforce the GBNF
             // grammar, so the schema alone doesn't guarantee an int).
             format!(
-                "  [{ts_hms}] event_ts={ts} {app} | {title} | {dur_secs}s | mode: {mode}{ocr_line}{url_line}",
+                "  [{ts_hms}] event_ts={ts} {app} | {title} | {dur_secs}s | mode: {mode}{ocr_line}{url_line}{vision_line}",
                 ts = e.ts,
                 app = e.app,
                 mode = e.mode,
@@ -699,6 +705,7 @@ mod tests {
             title: Some("YouTube".to_string()),
             ocr_text: None,
             url: None,
+            vision_desc: None,
             duration_ms: 30000,
             mode: "Browsing".to_string(),
         }]

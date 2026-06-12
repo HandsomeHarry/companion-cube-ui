@@ -161,6 +161,13 @@
     e => !groupedEventIds.has(e.id) && (e.kind === 'app_focus' || e.kind === 'idle_start')
   );
 
+  // Capture permissions — when blind, labels degrade to app names and the
+  // user deserves to know why (quietly).
+  let captureHealth: { accessibility: boolean; screen_recording: boolean } | null = null;
+  async function fetchCaptureHealth() {
+    try { captureHealth = await api.captureHealth(); } catch { captureHealth = null; }
+  }
+
   // The open session is the live head: new events visually flow into it.
   $: openGroup = displayGroups.find(g => g.open && isSameDay(selectedDate, today));
 
@@ -510,7 +517,8 @@
     refreshHistory().finally(() => { loading.set(false); });
     fetchRhythm(7);
     fetchLlmHealth();
-    const llmHealthInterval = setInterval(fetchLlmHealth, 30_000);
+    fetchCaptureHealth();
+    const llmHealthInterval = setInterval(() => { fetchLlmHealth(); fetchCaptureHealth(); }, 30_000);
 
     const refreshInterval = setInterval(() => {
       if ($activeView === 'history') {
@@ -542,6 +550,18 @@
 <div class="app">
   <Rail onViewChange={handleViewChange} />
   <main class="content">
+
+    {#if captureHealth && (!captureHealth.accessibility || !captureHealth.screen_recording) && $activeView !== 'settings'}
+      <div class="setup-hint" role="status">
+        {#if !captureHealth.screen_recording}
+          Companion Cube can't see your screen — activity descriptions will be vague.
+          Allow it in System Settings → Privacy & Security → <strong>Screen Recording</strong>.
+        {:else}
+          Companion Cube can't see window titles — grouping works better with them.
+          Allow it in System Settings → Privacy & Security → <strong>Accessibility</strong>.
+        {/if}
+      </div>
+    {/if}
 
     {#if $llmHealth && (!$llmHealth.reachable || $llmHealth.model_present === false) && $activeView !== 'settings'}
       <div class="setup-hint" role="status">

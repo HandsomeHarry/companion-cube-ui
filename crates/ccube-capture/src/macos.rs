@@ -700,6 +700,12 @@ fn check_screen_recording_permission() -> bool {
     unsafe { CGRequestScreenCaptureAccess() }
 }
 
+/// Live Accessibility permission check — without it there are no window
+/// titles or URLs, and grouping quality drops to app names.
+pub fn accessibility_permission_now() -> bool {
+    unsafe { ax_is_process_trusted() }
+}
+
 /// Cheap re-check, so revocation mid-session disables OCR/vision instead of
 /// crashing: a capture without permission throws an uncatchable ObjC
 /// exception. Callers must gate every capture_screenshot() on this.

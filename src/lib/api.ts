@@ -25,6 +25,9 @@ export const api = {
   recent: () =>
     request<EventRow[]>('/activity?hours=24'),
 
+  captureHealth: () =>
+    request<{ accessibility: boolean; screen_recording: boolean }>('/capture/health'),
+
   llmHealth: () =>
     request<{ provider: string; url: string; model: string; reachable: boolean; model_present: boolean | null }>('/llm/health'),
 

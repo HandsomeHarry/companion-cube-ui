@@ -286,6 +286,9 @@ pub struct TimelineEvent {
     pub ocr_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// What the vision model saw on screen during this event.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub vision_desc: Option<String>,
     pub duration_ms: i64,
     pub mode: String,
 }
@@ -422,6 +425,7 @@ pub fn build_v2(
                 title: e.title.clone(),
                 ocr_text: e.ocr_text.clone(),
                 url: nearest_url(e.ts),
+                vision_desc: e.vision_desc.clone(),
                 duration_ms: dur,
                 mode: mode_str,
             }
