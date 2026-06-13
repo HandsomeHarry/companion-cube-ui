@@ -1,6 +1,6 @@
 # Companion Cube
 
-**v0.2.1**
+**v0.2.2**
 
 Companion Cube helps you work *with* your brain, not against it. Instead of blocking distractions, it gently saves them for later—because that rabbit hole about mechanical keyboards might actually be worth exploring, just not right now.
 
@@ -9,9 +9,16 @@ Companion Cube helps you work *with* your brain, not against it. Instead of bloc
 ## Getting Started
 
 ### Installation
-1. Install [Ollama](https://ollama.ai) and follow the setup. No need to download the model just yet.
+1. Install [Ollama](https://ollama.ai) and follow the setup, then pull the default model:
+   ```bash
+   ollama pull gemma4:e4b
+   ```
 
 2. Download Companion Cube from [Releases](https://github.com/HandsomeHarry/companion-cube-ui/releases), keep it in a separate folder.
+
+3. Run the downloaded binary. A tray icon appears — pick **Open Dashboard** (or browse to `http://127.0.0.1:7431`).
+
+To use a different model or LLM endpoint, copy `.env.example` to `.env` next to the binary and adjust `CCUBE_LLM_MODEL` / `CCUBE_LLM_URL`.
 
 
 
@@ -46,6 +53,8 @@ Spotify Wrapped, but for your focus patterns.
 
 
 ### 💡 Aura
+*Planned — not in the current release.*
+
 Your room reflects your focus state.
 
 - Connects to existing smart lights (HomeKit, Home Assistant)
@@ -69,13 +78,13 @@ Gentle, not naggy.
 ```
 ┌──────────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │  Native Capture      │────▶│   Local LLM     │────▶│   Nudge User    │
-│  (app focus, title,  │     │   (Qwen3-8B)    │     │   or Stay Silent│
+│  (app focus, title,  │     │  (via Ollama)   │     │   or Stay Silent│
 │   URL, OCR, idle)    │     └────────┬────────┘     └─────────────────┘
 └──────────────────────┘               │
                                        ▼
                               ┌─────────────────┐
-                              │  Daily Learning │
-                              │  Loop (LoRA)    │
+                              │  Learning Loop  │
+                              │ (prompt memory) │
                               └─────────────────┘
                                        ▲
                                        │
@@ -91,17 +100,25 @@ Gentle, not naggy.
 ### Commands
 ```bash
 # Development
-npm run dev              # Frontend dev server
-cd src-tauri && cargo run  # Tauri app with hot reload
+npm install
+npm run dev                 # Frontend dev server (http://localhost:1420)
+cargo run -p ccube-daemon   # Daemon: capture, scheduler, HTTP API + UI on 127.0.0.1:7431
+cargo run -p ccube-cli      # `ccube` CLI (detect, briefing, daemon control, ...)
 
 # Building
-npm run build           # Production frontend build
-cargo build --release  # Production Tauri build
+npm run build           # Build frontend first — the daemon embeds build/ at compile time
+cargo build --release   # Production build of daemon + CLI
+
+# macOS app bundle (Companion Cube.app in dist/ — branded notifications,
+# menu-bar identity; ad-hoc signed)
+./scripts/make-bundle.sh
 ```
+
+Note: the daemon's `include_dir!` embeds the SvelteKit `build/` output, so run `npm run build` before any `cargo build` of `ccube-daemon`.
 
 ### System Requirements
 - **Memory**: 50-100MB typical usage
-- **Storage**: <10MB for application, variable for activity logs, might be 10GB or more if you use a large model model. Gemma 3 and Mistral is recommended
+- **Storage**: <10MB for the application, variable for activity logs. The LLM itself can take several GB depending on the model; Gemma 4 E4B (the default) is recommended.
 
 ## Data Privacy
 It doesn't need internet to function. Everything is kept on your computer.

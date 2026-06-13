@@ -24,6 +24,33 @@ pub fn read_patterns(memory_dir: &Path) -> Result<String> {
     }
 }
 
+/// A consistent point-in-time read of the agent memory files.
+///
+/// Loaded at the start of each agent run (detector, curator, reflector,
+/// briefing) so curator/reflector commits and manual edits take effect on
+/// the next run without a daemon restart. Within a single run the snapshot
+/// never changes; `patterns_hash` is logged with each decision so any
+/// decision remains traceable to the exact patterns version it saw.
+#[derive(Debug, Clone)]
+pub struct MemorySnapshot {
+    pub profile: String,
+    pub patterns: String,
+    pub patterns_hash: String,
+}
+
+/// Read profile.md + patterns.md and compute the patterns hash in one call.
+/// Missing files read as empty, matching `read_profile`/`read_patterns`.
+pub fn load_snapshot(memory_dir: &Path) -> Result<MemorySnapshot> {
+    let profile = read_profile(memory_dir)?;
+    let patterns = read_patterns(memory_dir)?;
+    let hash = patterns_hash(&patterns);
+    Ok(MemorySnapshot {
+        profile,
+        patterns,
+        patterns_hash: hash,
+    })
+}
+
 /// Compute SHA-256 hash of `patterns.md` content.
 pub fn patterns_hash(content: &str) -> String {
     use sha2::{Digest, Sha256};

@@ -7,7 +7,6 @@ use crate::{ActivityCapture, ActivityEvent};
 use anyhow::Result;
 use block::ConcreteBlock;
 use ccube_core::briefing::ActivitySnapshot;
-use core_foundation::base::TCFType;
 use core_foundation::date::CFAbsoluteTimeGetCurrent;
 use core_foundation::runloop::{
     kCFRunLoopDefaultMode, CFRunLoop, CFRunLoopTimer, CFRunLoopTimerCallBack, CFRunLoopTimerContext,
@@ -23,6 +22,10 @@ use tokio::sync::mpsc;
 
 /// Idle threshold: 5 minutes in seconds.
 const IDLE_THRESHOLD_SECS: f64 = 300.0;
+
+/// A poll-to-poll gap beyond this means the machine was asleep
+/// (polls run every 5s; even heavy load won't stall one this long).
+const SLEEP_GAP_MS: i64 = 60_000;
 
 /// Poll interval for title/URL/idle: 5 seconds.
 const POLL_INTERVAL_SECS: f64 = 5.0;
@@ -42,9 +45,10 @@ struct CaptureState {
     last_title: String,
     last_url: Option<String>,
     idle_active: bool,
-    has_ax_permission: bool,
-    has_screen_permission: bool,
     ax_warned: bool,
+    /// Wall-clock of the previous poll tick — a large jump means the
+    /// machine slept, which the idle check cannot see (timers freeze).
+    last_poll_ms: i64,
 }
 
 #[derive(Default)]
@@ -100,9 +104,11 @@ fn capture_thread_main(tx: mpsc::Sender<ActivityEvent>) {
 
     if !has_ax {
         tracing::warn!(
-            "Accessibility permission not granted — window titles and URLs will not be captured. \
+            "Accessibility permission not granted — prompting. \
              Grant in System Settings → Privacy & Security → Accessibility."
         );
+        // Show the system prompt (deep-links to the right Settings pane).
+        request_accessibility_permission();
     }
     if !has_screen {
         tracing::warn!(
@@ -118,9 +124,8 @@ fn capture_thread_main(tx: mpsc::Sender<ActivityEvent>) {
             last_title: String::new(),
             last_url: None,
             idle_active: false,
-            has_ax_permission: has_ax,
-            has_screen_permission: has_screen,
             ax_warned: !has_ax,
+            last_poll_ms: 0,
         });
     });
 
@@ -188,7 +193,7 @@ fn handle_focus_change() {
         return;
     }
 
-    let title = if CAPTURE_STATE.with(|c| c.borrow().as_ref().map(|s| s.has_ax_permission).unwrap_or(false)) {
+    let title = if accessibility_permission_now() {
         unsafe { get_frontmost_window_title() }
     } else {
         None
@@ -225,7 +230,11 @@ extern "C" fn poll_timer_callback(
         CFRunLoop::get_current().stop();
         return;
     }
-    poll_title_url_and_idle();
+    // Same boundary rule as ocr_timer_callback: panics must not cross
+    // extern "C" (they abort the process).
+    if std::panic::catch_unwind(poll_title_url_and_idle).is_err() {
+        tracing::warn!("poll callback panicked; skipping this cycle");
+    }
 }
 
 fn poll_title_url_and_idle() {
@@ -245,8 +254,9 @@ fn poll_title_url_and_idle() {
             None => return,
         };
 
+        let has_ax = accessibility_permission_now();
         if app != state.last_app {
-            let title = if state.has_ax_permission {
+            let title = if has_ax {
                 unsafe { get_frontmost_window_title() }
             } else {
                 None
@@ -259,7 +269,7 @@ fn poll_title_url_and_idle() {
             state.last_app = app;
             state.last_title = title.unwrap_or_default();
             state.last_url = None;
-        } else if state.has_ax_permission {
+        } else if has_ax {
             let title = unsafe { get_frontmost_window_title() }.unwrap_or_default();
             if title != state.last_title {
                 try_send_event(&state.tx, ActivityEvent::WindowTitleChanged {
@@ -286,16 +296,75 @@ fn poll_title_url_and_idle() {
             state.ax_warned = true;
         }
 
+        // Sleep detection: timers freeze during system sleep, so the idle
+        // check never fires across a closed lid — a night becomes app time.
+        // A poll-to-poll wall-clock jump is the sleep signal: emit a
+        // synthetic away period covering it.
+        if state.last_poll_ms > 0 && !state.idle_active {
+            let gap = ts - state.last_poll_ms;
+            if gap > SLEEP_GAP_MS {
+                try_send_event(&state.tx, ActivityEvent::IdleStart { ts: state.last_poll_ms });
+                try_send_event(&state.tx, ActivityEvent::IdleEnd { ts });
+                state.last_app.clear(); // re-emit focus, fresh clock
+            }
+        }
+        state.last_poll_ms = ts;
+
         // Idle check
         let idle_secs = unsafe { get_idle_seconds() };
         if idle_secs >= IDLE_THRESHOLD_SECS && !state.idle_active {
-            try_send_event(&state.tx, ActivityEvent::IdleStart { ts });
-            state.idle_active = true;
+            // Watching a video produces no input but is not AFK — and it's
+            // exactly the activity drift detection must keep seeing. Media
+            // players hold display-sleep assertions; respect them.
+            if !display_sleep_prevented() {
+                // The user left when input stopped, not when we noticed.
+                let onset_ts = ts - (idle_secs * 1000.0) as i64;
+                try_send_event(&state.tx, ActivityEvent::IdleStart { ts: onset_ts });
+                state.idle_active = true;
+            }
         } else if idle_secs < IDLE_THRESHOLD_SECS && state.idle_active {
             try_send_event(&state.tx, ActivityEvent::IdleEnd { ts });
             state.idle_active = false;
+            // Force the next poll to re-emit AppFocusChanged, opening a
+            // fresh focus event so post-break time starts a clean clock.
+            state.last_app.clear();
         }
     });
+}
+
+#[link(name = "IOKit", kind = "framework")]
+unsafe extern "C" {
+    fn IOPMCopyAssertionsStatus(
+        assertions_status: *mut core_foundation_sys::dictionary::CFDictionaryRef,
+    ) -> i32;
+}
+
+/// True while any process holds a display-sleep-prevention assertion —
+/// the standard "media is playing" signal (video players, presentations).
+/// Reads assertion *counts* only; no process inspection, no content.
+fn display_sleep_prevented() -> bool {
+    use core_foundation::base::TCFType;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_foundation_sys::dictionary::CFDictionaryRef;
+
+    let mut dict_ref: CFDictionaryRef = std::ptr::null();
+    let kr = unsafe { IOPMCopyAssertionsStatus(&mut dict_ref) };
+    if kr != 0 || dict_ref.is_null() {
+        return false;
+    }
+    let dict: CFDictionary<CFString, CFNumber> =
+        unsafe { CFDictionary::wrap_under_create_rule(dict_ref as _) };
+
+    ["PreventUserIdleDisplaySleep", "NoDisplaySleepAssertion"]
+        .iter()
+        .any(|key| {
+            dict.find(CFString::new(key))
+                .and_then(|n| n.to_i64())
+                .unwrap_or(0)
+                > 0
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -311,16 +380,25 @@ extern "C" fn ocr_timer_callback(
     }
     let ts = now_ms();
 
-    let should = CAPTURE_STATE.with(|c| c.borrow().as_ref().map(|s| s.has_screen_permission).unwrap_or(false));
-    if !should {
+    // Live permission check each cycle — never the startup flag: the user
+    // may grant Screen Recording after launch (or revoke it mid-session),
+    // and OCR must follow that immediately in both directions.
+    if !screen_permission_now() {
         return;
     }
 
-    let ocr_text = match run_ocr() {
-        Ok(text) if !text.is_empty() => Some(text),
-        Ok(_) => None,
-        Err(e) => {
+    // catch_unwind: a panic must not cross this extern "C" boundary (it
+    // aborts the process). xcap is known to panic internally when screen
+    // recording permission is missing or revoked mid-session.
+    let ocr_text = match std::panic::catch_unwind(run_ocr) {
+        Ok(Ok(text)) if !text.is_empty() => Some(text),
+        Ok(Ok(_)) => None,
+        Ok(Err(e)) => {
             tracing::debug!("macOS OCR failed: {e}");
+            None
+        }
+        Err(_) => {
+            tracing::warn!("macOS OCR panicked (screen permission?); skipping this cycle");
             None
         }
     };
@@ -349,10 +427,15 @@ fn run_ocr() -> anyhow::Result<String> {
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
     fn CGEventSourceSecondsSinceLastEventType(state_id: i32, event_type: u32) -> f64;
+    /// True if the process already has Screen Recording permission. Cheap,
+    /// never prompts, never throws.
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    /// Triggers the system Screen Recording prompt (once per identity).
+    fn CGRequestScreenCaptureAccess() -> bool;
 }
 
 unsafe fn get_idle_seconds() -> f64 {
-    CGEventSourceSecondsSinceLastEventType(0, 0)
+    unsafe { CGEventSourceSecondsSinceLastEventType(0, 0) }
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +443,7 @@ unsafe fn get_idle_seconds() -> f64 {
 // ---------------------------------------------------------------------------
 
 unsafe fn ax_is_process_trusted() -> bool {
-    AXIsProcessTrusted()
+    unsafe { AXIsProcessTrusted() }
 }
 
 unsafe fn current_frontmost_app() -> Option<String> {
@@ -392,105 +475,142 @@ unsafe fn get_frontmost_pid() -> Option<i32> {
     pid_str.parse::<i32>().ok()
 }
 
+/// Run an ObjC/AX closure, turning any thrown NSException into None. The AX
+/// tree belongs to *other* apps, some of which return nodes that make the
+/// Accessibility APIs throw; a foreign exception crossing into Rust aborts
+/// the whole daemon, so every AX query must pass through here. (These paths
+/// only began executing once Accessibility permission actually persisted —
+/// see scripts/dev-signing-identity.sh — which is why the throws surfaced.)
+fn ax_catch<T>(f: impl FnOnce() -> Option<T> + std::panic::UnwindSafe) -> Option<T> {
+    objc2::exception::catch(std::panic::AssertUnwindSafe(f))
+        .unwrap_or_else(|e| {
+            tracing::debug!("AX query threw an ObjC exception: {e:?}");
+            None
+        })
+}
+
 unsafe fn get_frontmost_window_title() -> Option<String> {
-    let pid = get_frontmost_pid()?;
-    let ax_app = ax_create_application(pid);
-    if ax_app.is_null() {
-        return None;
-    }
-    let win = ax_copy_attribute(ax_app, "AXFocusedWindow");
-    if win.is_null() {
+    ax_catch(|| unsafe {
+        let pid = get_frontmost_pid()?;
+        let ax_app = ax_create_application(pid);
+        if ax_app.is_null() {
+            return None;
+        }
+        let win = ax_copy_attribute(ax_app, "AXFocusedWindow");
+        if win.is_null() {
+            cf_release(ax_app);
+            return None;
+        }
+        let title = ax_copy_string_attribute(win, "AXTitle");
+        cf_release(win);
         cf_release(ax_app);
-        return None;
-    }
-    let title = ax_copy_string_attribute(win, "AXTitle");
-    cf_release(win);
-    cf_release(ax_app);
-    title
+        title
+    })
 }
 
 unsafe fn get_browser_url() -> Option<String> {
-    let pid = get_frontmost_pid()?;
-    let ax_app = ax_create_application(pid);
-    if ax_app.is_null() {
-        return None;
-    }
-    let win = ax_copy_attribute(ax_app, "AXFocusedWindow");
-    if win.is_null() {
+    ax_catch(|| unsafe {
+        let pid = get_frontmost_pid()?;
+        let ax_app = ax_create_application(pid);
+        if ax_app.is_null() {
+            return None;
+        }
+        let win = ax_copy_attribute(ax_app, "AXFocusedWindow");
+        if win.is_null() {
+            cf_release(ax_app);
+            return None;
+        }
+        let url = search_ax_for_url(win, 5);
+        cf_release(win);
         cf_release(ax_app);
-        return None;
-    }
-    let url = search_ax_for_url(win, 5);
-    cf_release(win);
-    cf_release(ax_app);
-    url
+        url
+    })
 }
 
 unsafe fn ax_create_application(pid: i32) -> *mut Object {
-    AXUIElementCreateApplication(pid)
+    unsafe { AXUIElementCreateApplication(pid) }
 }
 
 unsafe fn ax_copy_attribute(element: *mut Object, attr: &str) -> *mut Object {
-    let attr_ns = ns_string(attr);
-    let mut value: *mut Object = ptr::null_mut();
-    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
-    if err != 0 { ptr::null_mut() } else { value }
+    unsafe {
+        let attr_ns = ns_string(attr);
+        let mut value: *mut Object = ptr::null_mut();
+        let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
+        if err != 0 { ptr::null_mut() } else { value }
+    }
 }
 
 unsafe fn ax_copy_string_attribute(element: *mut Object, attr: &str) -> Option<String> {
-    let attr_ns = ns_string(attr);
-    let mut value: *mut Object = ptr::null_mut();
-    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
-    if err != 0 || value.is_null() {
-        return None;
+    unsafe {
+        let attr_ns = ns_string(attr);
+        let mut value: *mut Object = ptr::null_mut();
+        let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
+        if err != 0 || value.is_null() {
+            return None;
+        }
+        let result = nsstring_to_string(value);
+        CFRelease(value as *mut c_void);
+        result
     }
-    let result = nsstring_to_string(value);
-    CFRelease(value as *mut c_void);
-    result
 }
 
 unsafe fn ax_copy_attribute_array(element: *mut Object, attr: &str) -> Vec<*mut Object> {
-    let attr_ns = ns_string(attr);
-    let mut value: *mut Object = ptr::null_mut();
-    let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
-    if err != 0 || value.is_null() {
-        return Vec::new();
-    }
-    let count: usize = msg_send![value, count];
-    let mut items = Vec::with_capacity(count.min(50));
-    for i in 0..count.min(50) {
-        let item: *mut Object = msg_send![value, objectAtIndex: i];
-        if !item.is_null() {
-            items.push(item);
+    unsafe {
+        let attr_ns = ns_string(attr);
+        let mut value: *mut Object = ptr::null_mut();
+        let err = AXUIElementCopyAttributeValue(element, attr_ns as *mut Object, &mut value);
+        if err != 0 || value.is_null() {
+            return Vec::new();
         }
+        let count: usize = msg_send![value, count];
+        let mut items = Vec::with_capacity(count.min(50));
+        for i in 0..count.min(50) {
+            let item: *mut Object = msg_send![value, objectAtIndex: i];
+            if !item.is_null() {
+                // The items are owned by `value`; releasing the array below
+                // would deallocate them and leave us walking freed pointers
+                // (a use-after-free that traps deep in AXUIElementValidate).
+                // Retain each so we own it; the caller releases when done.
+                CFRetain(item as *const c_void);
+                items.push(item);
+            }
+        }
+        CFRelease(value as *mut c_void);
+        items
     }
-    CFRelease(value as *mut c_void);
-    items
 }
 
 unsafe fn search_ax_for_url(element: *mut Object, max_depth: usize) -> Option<String> {
-    if max_depth == 0 {
-        return None;
-    }
-    let children = ax_copy_attribute_array(element, "AXChildren");
-    for child in &children {
-        let role = ax_copy_string_attribute(*child, "AXRole").unwrap_or_default();
-        let desc = ax_copy_string_attribute(*child, "AXDescription").unwrap_or_default();
-        let rl = role.to_lowercase();
-        let dl = desc.to_lowercase();
+    unsafe {
+        if max_depth == 0 {
+            return None;
+        }
+        // Each child is a retained reference we own (see
+        // ax_copy_attribute_array); release every one before returning.
+        let children = ax_copy_attribute_array(element, "AXChildren");
+        let mut found = None;
+        for &child in &children {
+            if found.is_none() {
+                let role = ax_copy_string_attribute(child, "AXRole").unwrap_or_default();
+                let desc = ax_copy_string_attribute(child, "AXDescription").unwrap_or_default();
+                let rl = role.to_lowercase();
+                let dl = desc.to_lowercase();
 
-        if rl == "axtextfield" || rl == "axcombobox" || dl.contains("address") || dl.contains("url bar") {
-            if let Some(value) = ax_copy_string_attribute(*child, "AXValue") {
-                if value.starts_with("http") || value.contains("://") {
-                    return Some(value);
+                if rl == "axtextfield" || rl == "axcombobox" || dl.contains("address") || dl.contains("url bar") {
+                    if let Some(value) = ax_copy_string_attribute(child, "AXValue") {
+                        if value.starts_with("http") || value.contains("://") {
+                            found = Some(value);
+                        }
+                    }
+                }
+                if found.is_none() {
+                    found = search_ax_for_url(child, max_depth - 1);
                 }
             }
+            cf_release(child);
         }
-        if let Some(url) = search_ax_for_url(*child, max_depth - 1) {
-            return Some(url);
-        }
+        found
     }
-    None
 }
 
 // ---------------------------------------------------------------------------
@@ -499,48 +619,54 @@ unsafe fn search_ax_for_url(element: *mut Object, max_depth: usize) -> Option<St
 
 /// Create an NSString from a Rust &str.
 unsafe fn ns_string(s: &str) -> *mut Object {
-    let ns: *mut Object = msg_send![class!(NSString), alloc];
-    let bytes = s.as_ptr() as *const c_void;
-    let len = s.len();
-    msg_send![ns, initWithBytes: bytes length: len encoding: 4usize] // NSUTF8StringEncoding = 4
+    unsafe {
+        let ns: *mut Object = msg_send![class!(NSString), alloc];
+        let bytes = s.as_ptr() as *const c_void;
+        let len = s.len();
+        msg_send![ns, initWithBytes: bytes length: len encoding: 4usize] // NSUTF8StringEncoding = 4
+    }
 }
 
 /// Convert an NSString* to a Rust String.
 unsafe fn nsstring_to_string(obj: *mut Object) -> Option<String> {
-    if obj.is_null() {
-        return None;
+    unsafe {
+        if obj.is_null() {
+            return None;
+        }
+        let len: usize = msg_send![obj, lengthOfBytesUsingEncoding: 4usize];
+        if len == 0 {
+            return Some(String::new());
+        }
+        let mut buf = vec![0u8; len];
+        let mut used: usize = 0;
+        let ok: bool = msg_send![
+            obj,
+            getBytes: buf.as_mut_ptr() as *mut c_void
+            maxLength: len
+            encoding: 4usize
+            usedLength: &mut used as *mut _
+            lossyConversion: true
+        ];
+        if !ok { return None; }
+        buf.truncate(used);
+        Some(String::from_utf8_lossy(&buf).to_string())
     }
-    let len: usize = msg_send![obj, lengthOfBytesUsingEncoding: 4usize];
-    if len == 0 {
-        return Some(String::new());
-    }
-    let mut buf = vec![0u8; len];
-    let mut used: usize = 0;
-    let ok: bool = msg_send![
-        obj,
-        getBytes: buf.as_mut_ptr() as *mut c_void
-        maxLength: len
-        encoding: 4usize
-        usedLength: &mut used as *mut _
-        lossyConversion: true
-    ];
-    if !ok { return None; }
-    buf.truncate(used);
-    Some(String::from_utf8_lossy(&buf).to_string())
 }
 
 /// Create an NSAutoreleasePool.
 unsafe fn ns_autorelease_pool_new() -> *mut Object {
-    msg_send![class!(NSAutoreleasePool), new]
+    unsafe { msg_send![class!(NSAutoreleasePool), new] }
 }
 
-/// Accessibility framework functions — AXUIElement is a CF type, not an ObjC class.
+// Accessibility framework functions — AXUIElement is a CF type, not an ObjC class.
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXIsProcessTrusted() -> bool;
+    fn AXIsProcessTrustedWithOptions(options: core_foundation_sys::dictionary::CFDictionaryRef) -> bool;
     fn AXUIElementCreateApplication(pid: i32) -> *mut Object;
     fn AXUIElementCopyAttributeValue(element: *mut Object, attribute: *mut Object, value: *mut *mut Object) -> i32;
     fn CFRelease(cf: *mut c_void);
+    fn CFRetain(cf: *const c_void) -> *const c_void;
 }
 
 fn cf_release(obj: *mut Object) {
@@ -588,11 +714,46 @@ fn is_transient_macos_app(app: &str) -> bool {
     )
 }
 
+/// Ask the OS, not a trial screenshot: a probe capture can succeed during a
+/// permission grace period and then throw an uncatchable ObjC exception on
+/// a later capture. Preflight is authoritative; the request triggers the
+/// System Settings prompt for first-run bundles.
 fn check_screen_recording_permission() -> bool {
-    match crate::capture_screenshot() {
-        Ok(data) if !data.is_empty() => true,
-        _ => false,
+    if unsafe { CGPreflightScreenCaptureAccess() } {
+        return true;
     }
+    unsafe { CGRequestScreenCaptureAccess() }
+}
+
+/// Live Accessibility permission check — without it there are no window
+/// titles or URLs, and grouping quality drops to app names.
+pub fn accessibility_permission_now() -> bool {
+    unsafe { ax_is_process_trusted() }
+}
+
+/// Ask macOS for Accessibility access, showing the system prompt that
+/// deep-links to System Settings → Privacy → Accessibility. Plain
+/// AXIsProcessTrusted() never prompts, so without this the app is invisible
+/// to the user as something to grant. Returns the current grant state.
+fn request_accessibility_permission() -> bool {
+    use core_foundation::base::TCFType;
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::string::CFString;
+    // The literal underlying value of kAXTrustedCheckOptionPrompt.
+    let key = CFString::from_static_string("AXTrustedCheckOptionPrompt");
+    let opts = CFDictionary::from_CFType_pairs(&[(
+        key.as_CFType(),
+        CFBoolean::true_value().as_CFType(),
+    )]);
+    unsafe { AXIsProcessTrustedWithOptions(opts.as_concrete_TypeRef()) }
+}
+
+/// Cheap re-check, so revocation mid-session disables OCR/vision instead of
+/// crashing: a capture without permission throws an uncatchable ObjC
+/// exception. Callers must gate every capture_screenshot() on this.
+pub fn screen_permission_now() -> bool {
+    unsafe { CGPreflightScreenCaptureAccess() }
 }
 
 #[cfg(test)]

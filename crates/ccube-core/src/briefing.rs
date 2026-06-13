@@ -254,6 +254,7 @@ pub fn build(
         &right_now.app,
         right_now.title.as_deref(),
         None,
+        None,
     ));
 
     // 6. Assemble
@@ -285,6 +286,9 @@ pub struct TimelineEvent {
     pub ocr_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// What the vision model saw on screen during this event.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub vision_desc: Option<String>,
     pub duration_ms: i64,
     pub mode: String,
 }
@@ -309,6 +313,11 @@ pub struct MemoryContext {
 /// The v2 briefing — what build_v2() produces.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BriefingV2 {
+    /// The open session's label — the user's inferred current intention
+    /// ("terminal — working on companion cube"). Drift is judged relative
+    /// to this when present.
+    #[serde(default)]
+    pub current_activity: Option<String>,
     pub ts: i64,
     pub events: Vec<TimelineEvent>,
     pub metrics: AggregateMetrics,
@@ -360,6 +369,7 @@ pub fn build_v2(
     profile: &str,
     patterns: &str,
     vault_today: &[VaultEntry],
+    current_activity: Option<String>,
 ) -> BriefingV2 {
     let window_start = now_ms - 300_000; // 5 minutes
 
@@ -415,6 +425,7 @@ pub fn build_v2(
                 title: e.title.clone(),
                 ocr_text: e.ocr_text.clone(),
                 url: nearest_url(e.ts),
+                vision_desc: e.vision_desc.clone(),
                 duration_ms: dur,
                 mode: mode_str,
             }
@@ -473,6 +484,7 @@ pub fn build_v2(
     };
 
     BriefingV2 {
+        current_activity,
         ts: now_ms,
         events: timeline,
         metrics,
@@ -499,6 +511,9 @@ mod tests {
             duration_ms,
             mode: None,
             ocr_text: None,
+            vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 
@@ -620,6 +635,9 @@ mod tests {
             duration_ms: None,
             mode: None,
             ocr_text: None,
+            vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 
@@ -716,6 +734,9 @@ mod tests {
             duration_ms: None,
             mode: None,
             ocr_text: None,
+            vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 
@@ -740,6 +761,9 @@ mod tests {
             duration_ms,
             mode: None,
             ocr_text: ocr_text.map(|s| s.to_string()),
+            vision_desc: None,
+            session_id: None,
+            llm_desc: None,
         }
     }
 
@@ -750,7 +774,7 @@ mod tests {
             event(2, 6000, "WindowsTerminal.exe", "PowerShell", Some(7000)),
             event(3, 13000, "Code.exe", "lib.rs", None),
         ];
-        let b = build_v2(20000, &events, "my profile", "my patterns", &[]);
+        let b = build_v2(20000, &events, "my profile", "my patterns", &[], None);
 
         assert_eq!(b.events.len(), 3);
         assert_eq!(b.events[0].app, "Code.exe");
@@ -769,7 +793,7 @@ mod tests {
 
     #[test]
     fn test_build_v2_empty_events() {
-        let b = build_v2(50000, &[], "profile", "patterns", &[]);
+        let b = build_v2(50000, &[], "profile", "patterns", &[], None);
 
         assert!(b.events.is_empty());
         assert_eq!(b.metrics.switch_count, 0);
@@ -785,7 +809,7 @@ mod tests {
             sentinel(2, 6000, "idle_start"),
             event(3, 12000, "chrome.exe", "Google", None),
         ];
-        let b = build_v2(20000, &events, "", "", &[]);
+        let b = build_v2(20000, &events, "", "", &[], None);
 
         assert!(b.metrics.is_currently_afk);
     }
@@ -797,7 +821,7 @@ mod tests {
             sentinel(2, 5000, "idle_end"),
             event(3, 6000, "Code.exe", "main.rs", None),
         ];
-        let b = build_v2(15000, &events, "", "", &[]);
+        let b = build_v2(15000, &events, "", "", &[], None);
 
         assert!(!b.metrics.is_currently_afk);
         assert!(b.metrics.transitioned_afk_to_active);
@@ -810,7 +834,7 @@ mod tests {
             url_evt(2, 3000, "https://docs.rs/foo"),
             event(3, 6000, "chrome.exe", "Google", None),
         ];
-        let b = build_v2(20000, &events, "", "", &[]);
+        let b = build_v2(20000, &events, "", "", &[], None);
 
         // The Code.exe event should not have URL (no URL before it)
         assert!(b.events[0].url.is_none());
@@ -831,7 +855,7 @@ mod tests {
             ),
             event(2, 9000, "Code.exe", "lib.rs", None),
         ];
-        let b = build_v2(20000, &events, "", "", &[]);
+        let b = build_v2(20000, &events, "", "", &[], None);
 
         assert_eq!(b.events.len(), 2);
         assert_eq!(
@@ -848,7 +872,7 @@ mod tests {
             event(1, 1000, "Code.exe", "main.rs", Some(5000)),
             event(2, 400_000, "chrome.exe", "Google", None),
         ];
-        let b = build_v2(500_000, &events, "", "", &[]);
+        let b = build_v2(500_000, &events, "", "", &[], None);
 
         // Only the chrome event should be in the 5-min window
         assert_eq!(b.events.len(), 1);

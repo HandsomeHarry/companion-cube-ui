@@ -1,0 +1,142 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@700&display=swap');
+
+:root {
+  /* Brand */
+  --brand-orange: #F16A01;
+  --brand-orange-hov: #D85F02;
+  --brand-orange-deep: #C8480E;
+  --gold-star: #E8A41E;
+
+  /* Surfaces */
+  --paper: #FEFCF4;
+  --paper-panel: #FBF4E6;
+  --card-white: #FFFFFF;
+  --titlebar: #FDFDFD;
+
+  /* Text */
+  --ink: #2A2622;
+  --ink-soft: #6B6359;
+  --ink-faint: #A39B8E;
+  --on-orange: #FFFFFF;
+
+  /* Lines */
+  --divider: #ECE4D3;
+  --row-hover: #FBEFE0;
+
+  /* Radii */
+  --r-card: 16px;
+  --r-panel: 12px;
+  --r-control: 10px;
+  --r-pill: 999px;
+
+  /* Elevation */
+  --shadow-float: 0 12px 32px rgba(60, 40, 20, 0.18);
+  --shadow-window: 0 24px 64px rgba(30, 20, 10, 0.28);
+  --shadow-rest: 0 2px 8px rgba(60, 40, 20, 0.08);
+
+  /* Motion */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --t-fast: 140ms;
+  --t-normal: 260ms;
+  --t-calm: 420ms;
+
+  /* Typography */
+  --font-display: "Source Serif 4", "PT Serif", Charter, Georgia, serif;
+  --font-ui: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+[data-theme="charcoal"] {
+  --brand-orange: #FF7A1A;
+  --brand-orange-hov: #FF8A33;
+  --brand-orange-deep: #FFA255;
+  --gold-star: #E8A41E;
+  --paper: #161412;
+  --paper-panel: #1F1B17;
+  --card-white: #221E19;
+  --titlebar: #1A1714;
+  --ink: #ECE4D6;
+  --ink-soft: #A8A096;
+  --ink-faint: #6E665B;
+  --on-orange: #1A1207;
+  --divider: #2C2620;
+  --row-hover: #272019;
+  --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.50);
+  --shadow-window: 0 24px 64px rgba(0, 0, 0, 0.70);
+  --shadow-rest: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="forest"] {
+  --brand-orange: #E8A41E;
+  --brand-orange-hov: #F0B43A;
+  --brand-orange-deep: #F5C45A;
+  --gold-star: #E8A41E;
+  --paper: #0F1712;
+  --paper-panel: #16211A;
+  --card-white: #1A271F;
+  --titlebar: #121A15;
+  --ink: #E6EFE7;
+  --ink-soft: #9FB2A4;
+  --ink-faint: #62756A;
+  --on-orange: #11160C;
+  --divider: #25342B;
+  --row-hover: #1E2C24;
+  --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.50);
+  --shadow-window: 0 24px 64px rgba(0, 0, 0, 0.70);
+  --shadow-rest: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="slate"] {
+  --brand-orange: #E07A2F;
+  --brand-orange-hov: #C86D28;
+  --brand-orange-deep: #B05E22;
+  --gold-star: #C98A1E;
+  --paper: #F7F8FA;
+  --paper-panel: #EEF1F5;
+  --card-white: #FFFFFF;
+  --titlebar: #FBFCFE;
+  --ink: #1B2230;
+  --ink-soft: #586277;
+  --ink-faint: #97A1B2;
+  --on-orange: #FFFFFF;
+  --divider: #E2E7EF;
+  --row-hover: #ECF0F7;
+  --shadow-float: 0 12px 32px rgba(30, 40, 70, 0.18);
+  --shadow-window: 0 24px 64px rgba(20, 30, 55, 0.28);
+  --shadow-rest: 0 2px 8px rgba(30, 40, 70, 0.10);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color var(--t-normal) var(--ease), color var(--t-normal) var(--ease);
+}
+
+button {
+  font-family: var(--font-ui);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--brand-orange);
+  outline-offset: 2px;
+}
+
+h1.heading {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--brand-orange-deep);
+  margin-bottom: 8px;
+}

@@ -1,5 +1,5 @@
 use ccube_core::agents::{curator, reflector};
-use ccube_core::{agents::detector, briefing, db, eval, memory};
+use ccube_core::{agents::detector, briefing, db, eval};
 use chrono::{Datelike, Timelike};
 use serde::Serialize;
 use std::path::Path;
@@ -98,13 +98,22 @@ async fn run_detector(state: &AppState, trigger: &str) {
         }
     };
 
-    // Build v2 briefing from frozen memory
+    // Build v2 briefing from a fresh memory snapshot, so curator/reflector
+    // commits take effect on the next detector run without a restart.
+    let mem = state.memory_snapshot();
+    // The open session's label is the user's inferred intention — the
+    // reference point that makes "drift" decidable.
+    let current_activity = db::get_open_session(&conn, &crate::http::day_range_key(now_ms))
+        .ok()
+        .flatten()
+        .map(|s| s.label);
     let briefing = briefing::build_v2(
         now_ms,
         &events,
-        &state.frozen_profile,
-        &state.frozen_patterns,
+        &mem.profile,
+        &mem.patterns,
         &[], // vault_today: not implemented until later phases
+        current_activity,
     );
 
     // Run v2 two-step detector agent
@@ -128,7 +137,7 @@ async fn run_detector(state: &AppState, trigger: &str) {
         nudge_style_str.as_deref(),
         output.nudge_message.as_deref(),
         &briefing_json,
-        &state.frozen_patterns_hash,
+        &mem.patterns_hash,
         detector::PROMPT_VERSION_V2,
         duration_ms as i64,
     ) {
@@ -165,7 +174,7 @@ async fn run_detector(state: &AppState, trigger: &str) {
         nudge_style: nudge_style_str,
         nudge_message: output.nudge_message.as_deref(),
         patterns_cited: &output.patterns_cited,
-        patterns_hash: &state.frozen_patterns_hash,
+        patterns_hash: &mem.patterns_hash,
         decision_id,
         duration_ms,
     };
@@ -182,66 +191,25 @@ async fn run_detector(state: &AppState, trigger: &str) {
         }
     }
 
-    // Send notification on Nudge
+    // Send notification on Nudge (unless snoozed from the tray — the
+    // decision is still recorded above either way)
     if output.decision == briefing::DetectorDecision::Nudge
         && let Some(ref msg) = output.nudge_message
     {
-        if let Some(id) = decision_id {
-            send_nudge_notification(id, msg);
+        let snooze_until = state
+            .snooze_until_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if now_ms < snooze_until {
+            tracing::info!(
+                snooze_remaining_s = (snooze_until - now_ms) / 1000,
+                "nudge suppressed (snoozed from tray)"
+            );
+        } else if let Some(id) = decision_id {
+            crate::notify::send_nudge(id, msg);
         } else {
             tracing::warn!("nudge triggered but no decision_id available, skipping notification");
         }
     }
-}
-
-/// Send a desktop notification for a nudge via PowerShell balloon tip.
-/// Runs in a background thread so it never blocks the async runtime.
-///
-/// The message is passed via the `CCUBE_NUDGE_MSG` environment variable rather
-/// than interpolated into the script, preventing command injection from
-/// LLM-generated output.
-fn send_nudge_notification(decision_id: i64, message: &str) {
-    let msg = message.to_string();
-    let id_str = decision_id.to_string();
-
-    std::thread::spawn(move || {
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            let script = concat!(
-                "Add-Type -AssemblyName System.Windows.Forms;",
-                "$n = New-Object System.Windows.Forms.NotifyIcon;",
-                "$n.Icon = [System.Drawing.SystemIcons]::Information;",
-                "$n.BalloonTipTitle = 'Companion Cube #' + $env:CCUBE_DECISION_ID;",
-                "$n.BalloonTipText = $env:CCUBE_NUDGE_MSG;",
-                "$n.Visible = $true;",
-                "$n.ShowBalloonTip(8000);",
-                "Start-Sleep -Seconds 9;",
-                "$n.Dispose()"
-            );
-            match std::process::Command::new("powershell")
-                .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
-                .env("CCUBE_NUDGE_MSG", &msg)
-                .env("CCUBE_DECISION_ID", &id_str)
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output()
-            {
-                Ok(_) => tracing::debug!("nudge notification sent"),
-                Err(e) => tracing::warn!(error = %e, "failed to send nudge notification"),
-            }
-        }
-        #[cfg(not(windows))]
-        {
-            let title = format!("Companion Cube #{id_str}");
-            match std::process::Command::new("notify-send")
-                .args([&title, &msg])
-                .output()
-            {
-                Ok(_) => tracing::debug!("nudge notification sent"),
-                Err(e) => tracing::warn!(error = %e, "failed to send nudge notification"),
-            }
-        }
-    });
 }
 
 /// Hourly event prune loop.
@@ -369,11 +337,12 @@ async fn run_curator_loop(state: Arc<AppState>, cancel: CancellationToken) {
         tracing::info!(pending, "curator: starting scheduled daily run");
         let start = std::time::Instant::now();
 
+        let mem = state.memory_snapshot();
         match curator::run_curator(
             &state.data_root.data_dir,
             &state.data_root.memory_dir,
-            &state.frozen_profile,
-            &state.frozen_patterns,
+            &mem.profile,
+            &mem.patterns,
             state.curator_llm.as_ref(),
             state.llm.as_ref(),
             false, // not dry_run
@@ -517,20 +486,14 @@ async fn run_reflector_loop(state: Arc<AppState>, cancel: CancellationToken) {
             continue;
         }
 
-        // Read live patterns from disk (curator may have updated since daemon start)
-        let current_patterns = match memory::read_patterns(&state.data_root.memory_dir) {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::error!(error = %e, "reflector: failed to read patterns.md");
-                continue;
-            }
-        };
+        // Fresh snapshot: curator may have updated memory since the last tick.
+        let mem = state.memory_snapshot();
 
         // Determine trigger
         let now = chrono::Local::now();
         let is_weekly =
             now.weekday() == chrono::Weekday::Sun && now.hour() == 3;
-        let is_size = current_patterns.len() > 1600;
+        let is_size = mem.patterns.len() > 1600;
 
         let trigger = if is_weekly {
             "weekly"
@@ -551,7 +514,7 @@ async fn run_reflector_loop(state: Arc<AppState>, cancel: CancellationToken) {
 
         tracing::info!(
             trigger,
-            patterns_len = current_patterns.len(),
+            patterns_len = mem.patterns.len(),
             "reflector: starting scheduled run"
         );
         let start = std::time::Instant::now();
@@ -559,8 +522,8 @@ async fn run_reflector_loop(state: Arc<AppState>, cancel: CancellationToken) {
         match reflector::run_reflector(
             &state.data_root.data_dir,
             &state.data_root.memory_dir,
-            &state.frozen_profile,
-            &current_patterns,
+            &mem.profile,
+            &mem.patterns,
             state.curator_llm.as_ref(),
             state.llm.as_ref(), // eval uses detector LLM (faster)
             false,              // not dry_run

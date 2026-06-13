@@ -35,6 +35,10 @@ static WIN32_THREAD_ID: AtomicU32 = AtomicU32::new(0);
 /// Idle threshold: 5 minutes in milliseconds.
 const IDLE_THRESHOLD_MS: u32 = 300_000;
 
+/// A poll-to-poll gap beyond this means the machine was asleep
+/// (polls run every 5s; even heavy load won't stall one this long).
+const SLEEP_GAP_MS: i64 = 60_000;
+
 /// Poll interval: 5 seconds.
 const POLL_INTERVAL_MS: u32 = 5_000;
 
@@ -46,6 +50,9 @@ struct CaptureState {
     last_title: String,
     last_url: Option<String>,
     idle_active: bool,
+    /// Wall-clock of the previous idle poll — a large jump means the
+    /// machine slept, which the idle check cannot see (timers freeze).
+    last_poll_ms: i64,
 }
 
 thread_local! {
@@ -148,6 +155,7 @@ fn win32_message_loop(tx: mpsc::Sender<ActivityEvent>) {
             last_title: String::new(),
             last_url: None,
             idle_active: false,
+            last_poll_ms: 0,
         });
     });
 
@@ -407,8 +415,23 @@ fn check_idle() {
             None => return,
         };
 
+        // Sleep detection: timers freeze during system sleep, so the idle
+        // check never fires across a suspend — emit a synthetic away period
+        // covering the wall-clock jump.
+        if state.last_poll_ms > 0 && !state.idle_active {
+            let gap = ts - state.last_poll_ms;
+            if gap > SLEEP_GAP_MS {
+                try_send_event(&state.tx, ActivityEvent::IdleStart { ts: state.last_poll_ms });
+                try_send_event(&state.tx, ActivityEvent::IdleEnd { ts });
+                state.last_app.clear(); // re-emit focus, fresh clock
+            }
+        }
+        state.last_poll_ms = ts;
+
         if idle_ms >= IDLE_THRESHOLD_MS && !state.idle_active {
-            try_send_event(&state.tx, ActivityEvent::IdleStart { ts });
+            // The user left when input stopped, not when we noticed.
+            let onset_ts = ts - idle_ms as i64;
+            try_send_event(&state.tx, ActivityEvent::IdleStart { ts: onset_ts });
             state.idle_active = true;
         } else if idle_ms < IDLE_THRESHOLD_MS && state.idle_active {
             try_send_event(&state.tx, ActivityEvent::IdleEnd { ts });

@@ -10,6 +10,10 @@ thinking during each activity session. Don't judge — just interpret intent.
 
 {patterns}
 
+## What they are currently working on
+
+{current_activity}
+
 ## Activity timeline (last 5 minutes)
 
 Each entry shows an app session with what they switched from >5s. The OCR text

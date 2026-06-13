@@ -137,7 +137,10 @@ pub async fn run(
     let prompt = render_prompt(profile, patterns, retained_corrections);
 
     match llm.complete(&prompt, REFLECTOR_GRAMMAR, 2048, 0.4).await {
-        Ok(resp) => serde_json::from_str::<ReflectorOutput>(&resp.content)
+        // Via Value first so duplicate keys collapse last-wins (Ollama
+        // ignores the grammar; see curator.rs for the same pattern).
+        Ok(resp) => serde_json::from_str::<serde_json::Value>(&resp.content)
+            .and_then(serde_json::from_value::<ReflectorOutput>)
             .map_err(|e| ReflectorError::ParseFailed(format!("{e}: {}", resp.content))),
         Err(LlmError::Unreachable(msg)) => Err(ReflectorError::LlmUnavailable(msg)),
         Err(LlmError::BadResponse(msg)) => Err(ReflectorError::ParseFailed(msg)),

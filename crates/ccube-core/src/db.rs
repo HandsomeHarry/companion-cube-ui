@@ -1,10 +1,10 @@
 use anyhow::Result;
-use rusqlite::Connection;
+pub use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// A row from the events table, for display purposes.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventRow {
     pub id: i64,
     pub ts: i64,
@@ -14,6 +14,11 @@ pub struct EventRow {
     pub duration_ms: Option<i64>,
     pub mode: Option<String>,
     pub ocr_text: Option<String>,
+    pub vision_desc: Option<String>,
+    /// Stable session membership (sessions table); None = not yet organized.
+    pub session_id: Option<i64>,
+    /// Per-event description written by the summarize LLM pass.
+    pub llm_desc: Option<String>,
 }
 
 /// A row from the decisions table (detector decisions persisted for correction reference).
@@ -60,6 +65,7 @@ pub fn init_databases(data_dir: &Path) -> Result<()> {
     init_events_db(data_dir)?;
     init_corrections_db(data_dir)?;
     init_eval_runs_db(data_dir)?;
+    init_summaries_db(data_dir)?;
     Ok(())
 }
 
@@ -196,26 +202,58 @@ pub fn update_event_ocr(conn: &Connection, event_id: i64, ocr_text: &str) -> Res
     Ok(())
 }
 
+/// Set both ocr_text and mode on a previously inserted event.
+/// Used when OCR text arrives after the initial insert and enables re-inferred mode.
+pub fn update_event_ocr_and_mode(conn: &Connection, event_id: i64, ocr_text: &str, mode: &str) -> Result<()> {
+    let rows = conn.execute(
+        "UPDATE events SET ocr_text = ?1, mode = ?2 WHERE id = ?3",
+        rusqlite::params![ocr_text, mode, event_id],
+    )?;
+    if rows == 0 {
+        anyhow::bail!("event #{event_id} not found");
+    }
+    Ok(())
+}
+
+/// Set the vision_desc on a previously inserted event (populated by vision model classification).
+pub fn update_event_vision(conn: &Connection, event_id: i64, vision_desc: &str) -> Result<()> {
+    let rows = conn.execute(
+        "UPDATE events SET vision_desc = ?1 WHERE id = ?2",
+        rusqlite::params![vision_desc, event_id],
+    )?;
+    if rows == 0 {
+        anyhow::bail!("event #{event_id} not found");
+    }
+    Ok(())
+}
+
+/// Shared SELECT column list and row mapper for EventRow queries.
+const EVENT_COLS: &str =
+    "id, ts, kind, app, title, duration_ms, mode, ocr_text, vision_desc, session_id, llm_desc";
+
+fn map_event_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventRow> {
+    Ok(EventRow {
+        id: row.get(0)?,
+        ts: row.get(1)?,
+        kind: row.get(2)?,
+        app: row.get(3)?,
+        title: row.get(4)?,
+        duration_ms: row.get(5)?,
+        mode: row.get(6)?,
+        ocr_text: row.get(7)?,
+        vision_desc: row.get(8)?,
+        session_id: row.get(9)?,
+        llm_desc: row.get(10)?,
+    })
+}
+
 /// Query events with ts >= since_ts, ordered by ts ascending.
 /// Capped at 10,000 rows as a safety bound.
 pub fn query_recent_events(conn: &Connection, since_ts: i64) -> Result<Vec<EventRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text
-         FROM events WHERE ts >= ?1 ORDER BY ts ASC LIMIT 10000",
-    )?;
-
-    let rows = stmt.query_map([since_ts], |row| {
-        Ok(EventRow {
-            id: row.get(0)?,
-            ts: row.get(1)?,
-            kind: row.get(2)?,
-            app: row.get(3)?,
-            title: row.get(4)?,
-            duration_ms: row.get(5)?,
-            mode: row.get(6)?,
-            ocr_text: row.get(7)?,
-        })
-    })?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {EVENT_COLS} FROM events WHERE ts >= ?1 ORDER BY ts ASC LIMIT 10000",
+    ))?;
+    let rows = stmt.query_map([since_ts], map_event_row)?;
 
     let mut results = Vec::new();
     for row in rows {
@@ -226,22 +264,21 @@ pub fn query_recent_events(conn: &Connection, since_ts: i64) -> Result<Vec<Event
 
 /// Return the most recent event of a given kind, or None.
 pub fn last_event_of_kind(conn: &Connection, kind: &str) -> Result<Option<EventRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text
-         FROM events WHERE kind = ?1 ORDER BY ts DESC LIMIT 1",
-    )?;
-    let mut rows = stmt.query_map([kind], |row| {
-        Ok(EventRow {
-            id: row.get(0)?,
-            ts: row.get(1)?,
-            kind: row.get(2)?,
-            app: row.get(3)?,
-            title: row.get(4)?,
-            duration_ms: row.get(5)?,
-            mode: row.get(6)?,
-            ocr_text: row.get(7)?,
-        })
-    })?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {EVENT_COLS} FROM events WHERE kind = ?1 ORDER BY ts DESC LIMIT 1",
+    ))?;
+    let mut rows = stmt.query_map([kind], map_event_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// Fetch a single event by ID.
+pub fn get_event(conn: &Connection, id: i64) -> Result<Option<EventRow>> {
+    let mut stmt =
+        conn.prepare(&format!("SELECT {EVENT_COLS} FROM events WHERE id = ?1"))?;
+    let mut rows = stmt.query_map([id], map_event_row)?;
     match rows.next() {
         Some(row) => Ok(Some(row?)),
         None => Ok(None),
@@ -250,22 +287,9 @@ pub fn last_event_of_kind(conn: &Connection, kind: &str) -> Result<Option<EventR
 
 /// Return the most recent event regardless of kind, or None.
 pub fn last_event(conn: &Connection) -> Result<Option<EventRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, ts, kind, app, title, duration_ms, mode, ocr_text
-         FROM events ORDER BY ts DESC LIMIT 1",
-    )?;
-    let mut rows = stmt.query_map([], |row| {
-        Ok(EventRow {
-            id: row.get(0)?,
-            ts: row.get(1)?,
-            kind: row.get(2)?,
-            app: row.get(3)?,
-            title: row.get(4)?,
-            duration_ms: row.get(5)?,
-            mode: row.get(6)?,
-            ocr_text: row.get(7)?,
-        })
-    })?;
+    let mut stmt =
+        conn.prepare(&format!("SELECT {EVENT_COLS} FROM events ORDER BY ts DESC LIMIT 1"))?;
+    let mut rows = stmt.query_map([], map_event_row)?;
     match rows.next() {
         Some(row) => Ok(Some(row?)),
         None => Ok(None),
@@ -278,7 +302,269 @@ pub fn prune_events(conn: &Connection, before_ts: i64) -> Result<u64> {
         "DELETE FROM events WHERE ts < ?1",
         rusqlite::params![before_ts],
     )?;
+    // Unpinned sessions whose events were all pruned are dead weight.
+    // Pinned ones are kept even when empty — same policy as
+    // refresh_session_bounds: the user made them, only the user (or a
+    // reorganize they trigger) removes them.
+    conn.execute(
+        "DELETE FROM sessions WHERE pinned = 0 AND id NOT IN
+           (SELECT DISTINCT session_id FROM events WHERE session_id IS NOT NULL)",
+        [],
+    )?;
     Ok(deleted as u64)
+}
+
+// ---------------------------------------------------------------------------
+// Sessions — stable activity groups (LLM-proposed, user-correctable)
+// ---------------------------------------------------------------------------
+
+/// A session row: a named group of events with stable identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRow {
+    pub id: i64,
+    pub range_key: String,
+    pub label: String,
+    pub start_ts: i64,
+    pub end_ts: i64,
+    pub distraction: bool,
+    pub pinned: bool,
+    pub created_by: String,
+    /// Still absorbing new events. At most one session per range is open;
+    /// solidified (closed) sessions are never auto-modified again.
+    pub open: bool,
+}
+
+/// Create a session and return its ID.
+#[allow(clippy::too_many_arguments)]
+pub fn create_session(
+    conn: &Connection,
+    range_key: &str,
+    label: &str,
+    start_ts: i64,
+    end_ts: i64,
+    distraction: bool,
+    created_by: &str,
+    open: bool,
+) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO sessions (range_key, label, start_ts, end_ts, distraction, pinned, created_by, open)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![
+            range_key,
+            label,
+            start_ts,
+            end_ts,
+            distraction,
+            created_by == "user", // user-created sessions start pinned
+            created_by,
+            open
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// The session currently absorbing new events for a range, if any.
+pub fn get_open_session(conn: &Connection, range_key: &str) -> Result<Option<SessionRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SESSION_COLS} FROM sessions
+         WHERE range_key = ?1 AND open = 1 ORDER BY end_ts DESC LIMIT 1",
+    ))?;
+    let mut rows = stmt.query_map([range_key], map_session_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// Solidify a session: it stops absorbing events and (unless the user named
+/// it — pinned) takes its final context label. Closed sessions are never
+/// auto-modified again.
+pub fn close_session(conn: &Connection, id: i64, final_label: Option<&str>) -> Result<()> {
+    conn.execute("UPDATE sessions SET open = 0 WHERE id = ?1", [id])?;
+    if let Some(label) = final_label {
+        conn.execute(
+            "UPDATE sessions SET label = ?2 WHERE id = ?1 AND pinned = 0",
+            rusqlite::params![id, label],
+        )?;
+    }
+    Ok(())
+}
+
+/// Refresh an open session's evolving label (skipped for pinned sessions —
+/// the user's name is frozen).
+pub fn update_open_label(conn: &Connection, id: i64, label: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE sessions SET label = ?2 WHERE id = ?1 AND pinned = 0 AND open = 1",
+        rusqlite::params![id, label],
+    )?;
+    Ok(())
+}
+
+/// Close any open session that belongs to a different range (day rollover):
+/// yesterday's open session must not absorb today's events.
+pub fn close_stale_open_sessions(conn: &Connection, current_range_key: &str) -> Result<u64> {
+    let n = conn.execute(
+        "UPDATE sessions SET open = 0 WHERE open = 1 AND range_key != ?1",
+        [current_range_key],
+    )?;
+    Ok(n as u64)
+}
+
+const SESSION_COLS: &str =
+    "id, range_key, label, start_ts, end_ts, distraction, pinned, created_by, open";
+
+fn map_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
+    Ok(SessionRow {
+        id: row.get(0)?,
+        range_key: row.get(1)?,
+        label: row.get(2)?,
+        start_ts: row.get(3)?,
+        end_ts: row.get(4)?,
+        distraction: row.get(5)?,
+        pinned: row.get(6)?,
+        created_by: row.get(7)?,
+        open: row.get(8)?,
+    })
+}
+
+/// List sessions for a range key, newest first.
+pub fn list_sessions(conn: &Connection, range_key: &str) -> Result<Vec<SessionRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SESSION_COLS} FROM sessions WHERE range_key = ?1 ORDER BY end_ts DESC",
+    ))?;
+    let rows = stmt.query_map([range_key], map_session_row)?;
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row?);
+    }
+    Ok(results)
+}
+
+/// Fetch a single session by ID.
+pub fn get_session(conn: &Connection, id: i64) -> Result<Option<SessionRow>> {
+    let mut stmt =
+        conn.prepare(&format!("SELECT {SESSION_COLS} FROM sessions WHERE id = ?1"))?;
+    let mut rows = stmt.query_map([id], map_session_row)?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// Rename a session. A rename is a user decision, so the session pins.
+pub fn rename_session(conn: &Connection, id: i64, label: &str) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE sessions SET label = ?2, pinned = 1 WHERE id = ?1",
+        rusqlite::params![id, label],
+    )?;
+    Ok(n > 0)
+}
+
+/// Pin or unpin a session.
+pub fn set_session_pinned(conn: &Connection, id: i64, pinned: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE sessions SET pinned = ?2 WHERE id = ?1",
+        rusqlite::params![id, pinned],
+    )?;
+    Ok(())
+}
+
+/// Assign an event to a session (None detaches it back to ungrouped) and
+/// refresh both affected sessions' time bounds from their member events.
+/// Empty unpinned sessions left behind are deleted; empty pinned sessions
+/// are kept (the user made them, the user can delete them via reorganize).
+pub fn assign_event_session(
+    conn: &Connection,
+    event_id: i64,
+    session_id: Option<i64>,
+) -> Result<()> {
+    let prev: Option<i64> = conn
+        .query_row(
+            "SELECT session_id FROM events WHERE id = ?1",
+            [event_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(None);
+
+    conn.execute(
+        "UPDATE events SET session_id = ?2 WHERE id = ?1",
+        rusqlite::params![event_id, session_id],
+    )?;
+
+    for sid in [prev, session_id].into_iter().flatten() {
+        refresh_session_bounds(conn, sid)?;
+    }
+    Ok(())
+}
+
+/// Recompute a session's start/end from its member events; delete it if it
+/// has no members and is not pinned.
+fn refresh_session_bounds(conn: &Connection, session_id: i64) -> Result<()> {
+    let bounds: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT MIN(ts), MAX(ts) FROM events WHERE session_id = ?1",
+            [session_id],
+            |r| {
+                let lo: Option<i64> = r.get(0)?;
+                let hi: Option<i64> = r.get(1)?;
+                Ok(lo.zip(hi))
+            },
+        )
+        .unwrap_or(None);
+
+    match bounds {
+        Some((lo, hi)) => {
+            conn.execute(
+                "UPDATE sessions SET start_ts = ?2, end_ts = ?3 WHERE id = ?1",
+                rusqlite::params![session_id, lo, hi],
+            )?;
+        }
+        None => {
+            conn.execute(
+                "DELETE FROM sessions WHERE id = ?1 AND pinned = 0",
+                [session_id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Events belonging to a session, oldest first.
+pub fn query_events_by_session(conn: &Connection, session_id: i64) -> Result<Vec<EventRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {EVENT_COLS} FROM events WHERE session_id = ?1 ORDER BY ts ASC",
+    ))?;
+    let rows = stmt.query_map([session_id], map_event_row)?;
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row?);
+    }
+    Ok(results)
+}
+
+/// Store the summarize LLM's per-event description.
+pub fn update_event_llm_desc(conn: &Connection, event_id: i64, desc: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE events SET llm_desc = ?2 WHERE id = ?1",
+        rusqlite::params![event_id, desc],
+    )?;
+    Ok(())
+}
+
+/// Delete unpinned sessions in a range and detach their events, so a full
+/// organize pass can regroup them. Pinned sessions and their events are
+/// untouched. Returns the number of sessions deleted.
+pub fn clear_unpinned_sessions(conn: &Connection, range_key: &str) -> Result<u64> {
+    conn.execute(
+        "UPDATE events SET session_id = NULL WHERE session_id IN
+           (SELECT id FROM sessions WHERE range_key = ?1 AND pinned = 0)",
+        [range_key],
+    )?;
+    let n = conn.execute(
+        "DELETE FROM sessions WHERE range_key = ?1 AND pinned = 0",
+        [range_key],
+    )?;
+    Ok(n as u64)
 }
 
 // ---------------------------------------------------------------------------
@@ -506,6 +792,53 @@ pub fn list_eval_runs(conn: &Connection, limit: i64) -> Result<Vec<EvalRunRow>> 
     Ok(results)
 }
 
+// ---------------------------------------------------------------------------
+// Session summaries — persisted LLM grouping results keyed by date range
+// ---------------------------------------------------------------------------
+
+/// Open the summaries database for reading/writing.
+pub fn open_summaries_db(data_dir: &Path) -> Result<Connection> {
+    let conn = Connection::open(data_dir.join("summaries.sqlite"))?;
+    apply_pragmas(&conn)?;
+    Ok(conn)
+}
+
+/// Upsert a summary for a given range_key. Replaces any existing entry.
+pub fn upsert_summary(
+    conn: &Connection,
+    range_key: &str,
+    since_ms: i64,
+    until_ms: i64,
+    generated_at: i64,
+    groups_json: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO summaries (range_key, since_ms, until_ms, generated_at, groups_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(range_key) DO UPDATE SET
+           since_ms = excluded.since_ms,
+           until_ms = excluded.until_ms,
+           generated_at = excluded.generated_at,
+           groups_json = excluded.groups_json",
+        rusqlite::params![range_key, since_ms, until_ms, generated_at, groups_json],
+    )?;
+    Ok(())
+}
+
+/// Get a summary by range_key. Returns None if not found.
+pub fn get_summary(conn: &Connection, range_key: &str) -> Result<Option<(i64, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT generated_at, groups_json FROM summaries WHERE range_key = ?1",
+    )?;
+    let mut rows = stmt.query_map([range_key], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
 fn init_events_db(data_dir: &Path) -> Result<()> {
     let conn = Connection::open(data_dir.join("events.sqlite"))?;
     apply_pragmas(&conn)?;
@@ -537,10 +870,41 @@ fn init_events_db(data_dir: &Path) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_decisions_ts ON decisions(ts);",
     )?;
+    // Sessions: LLM- or user-created activity groups with stable identity.
+    // `pinned` marks sessions the user has touched — organize passes must
+    // never modify them. Lives in events.sqlite so events.session_id is local.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sessions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            range_key   TEXT NOT NULL,
+            label       TEXT NOT NULL,
+            start_ts    INTEGER NOT NULL,
+            end_ts      INTEGER NOT NULL,
+            distraction INTEGER NOT NULL DEFAULT 0,
+            pinned      INTEGER NOT NULL DEFAULT 0,
+            created_by  TEXT NOT NULL DEFAULT 'llm'
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_range ON sessions(range_key);",
+    )?;
     // Migration: add ocr_text column to existing databases
     conn.execute_batch(
         "ALTER TABLE events ADD COLUMN ocr_text TEXT;",
     ).ok(); // ok() — column already exists on fresh databases
+    // Migration: add vision_desc column (safe to run repeatedly)
+    let _ = conn.execute("ALTER TABLE events ADD COLUMN vision_desc TEXT", []);
+    // Migration: session membership + per-event LLM description
+    let _ = conn.execute("ALTER TABLE events ADD COLUMN session_id INTEGER", []);
+    let _ = conn.execute("ALTER TABLE events ADD COLUMN llm_desc TEXT", []);
+    // Migration: open-session model — the newest session of a day stays open
+    // (absorbing new events) until a break or topic change solidifies it.
+    let _ = conn.execute("ALTER TABLE sessions ADD COLUMN open INTEGER NOT NULL DEFAULT 0", []);
+    // After the ALTER (the column must exist before it can be indexed):
+    // query_events_by_session and refresh_session_bounds hit this on every
+    // summaries poll and every assignment.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)",
+        [],
+    )?;
     Ok(())
 }
 
@@ -607,6 +971,23 @@ fn init_eval_runs_db(data_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+fn init_summaries_db(data_dir: &Path) -> Result<()> {
+    let conn = Connection::open(data_dir.join("summaries.sqlite"))?;
+    apply_pragmas(&conn)?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS summaries (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            range_key       TEXT NOT NULL UNIQUE,
+            since_ms        INTEGER NOT NULL,
+            until_ms        INTEGER NOT NULL,
+            generated_at    INTEGER NOT NULL,
+            groups_json     TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_summaries_range ON summaries(range_key);",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,6 +1000,164 @@ mod tests {
         assert!(dir.path().join("events.sqlite").exists());
         assert!(dir.path().join("corrections.sqlite").exists());
         assert!(dir.path().join("eval_runs.sqlite").exists());
+    }
+
+    #[test]
+    fn test_session_crud_and_pinning() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+
+        let e1 = insert_event(&conn, 1000, "app_focus", Some("iTerm2"), None, None).unwrap();
+        let e2 = insert_event(&conn, 2000, "app_focus", Some("Brave"), None, None).unwrap();
+
+        let sid = create_session(&conn, "day:2026-06-11", "Coding", 1000, 2000, false, "llm", false).unwrap();
+        assign_event_session(&conn, e1, Some(sid)).unwrap();
+        assign_event_session(&conn, e2, Some(sid)).unwrap();
+
+        let sessions = list_sessions(&conn, "day:2026-06-11").unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(!sessions[0].pinned);
+        assert_eq!(query_events_by_session(&conn, sid).unwrap().len(), 2);
+
+        // Rename pins
+        assert!(rename_session(&conn, sid, "Terminal work").unwrap());
+        let s = get_session(&conn, sid).unwrap().unwrap();
+        assert!(s.pinned);
+        assert_eq!(s.label, "Terminal work");
+
+        // Pinned sessions survive clear_unpinned_sessions
+        assert_eq!(clear_unpinned_sessions(&conn, "day:2026-06-11").unwrap(), 0);
+        assert!(get_session(&conn, sid).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_detach_deletes_empty_unpinned_session() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+
+        let e1 = insert_event(&conn, 1000, "app_focus", Some("iTerm2"), None, None).unwrap();
+        let sid = create_session(&conn, "day:2026-06-11", "Coding", 1000, 1000, false, "llm", false).unwrap();
+        assign_event_session(&conn, e1, Some(sid)).unwrap();
+
+        // Detach the only event — unpinned session should be auto-deleted
+        assign_event_session(&conn, e1, None).unwrap();
+        assert!(get_session(&conn, sid).unwrap().is_none());
+
+        let ev = query_recent_events(&conn, 0).unwrap();
+        assert_eq!(ev[0].session_id, None);
+    }
+
+    #[test]
+    fn test_bounds_refresh_on_move() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+
+        let e1 = insert_event(&conn, 1000, "app_focus", Some("A"), None, None).unwrap();
+        let e2 = insert_event(&conn, 9000, "app_focus", Some("B"), None, None).unwrap();
+        let s1 = create_session(&conn, "day:x", "One", 0, 0, false, "llm", false).unwrap();
+        let s2 = create_session(&conn, "day:x", "Two", 0, 0, false, "user", false).unwrap();
+        assign_event_session(&conn, e1, Some(s1)).unwrap();
+        assign_event_session(&conn, e2, Some(s1)).unwrap();
+        assert_eq!(get_session(&conn, s1).unwrap().unwrap().end_ts, 9000);
+
+        // user-created session is born pinned
+        assert!(get_session(&conn, s2).unwrap().unwrap().pinned);
+
+        // Move the later event over; s1's bounds shrink, s2's grow
+        assign_event_session(&conn, e2, Some(s2)).unwrap();
+        assert_eq!(get_session(&conn, s1).unwrap().unwrap().end_ts, 1000);
+        assert_eq!(get_session(&conn, s2).unwrap().unwrap().start_ts, 9000);
+    }
+
+    #[test]
+    fn test_open_session_lifecycle() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+
+        let sid = create_session(&conn, "day:a", "working", 1000, 2000, false, "llm", true).unwrap();
+        assert_eq!(get_open_session(&conn, "day:a").unwrap().unwrap().id, sid);
+        assert!(get_open_session(&conn, "day:b").unwrap().is_none());
+
+        // Evolving label refresh works while open + unpinned
+        update_open_label(&conn, sid, "terminal — working on companion cube").unwrap();
+        assert_eq!(
+            get_session(&conn, sid).unwrap().unwrap().label,
+            "terminal — working on companion cube"
+        );
+
+        // Day rollover closes it
+        assert_eq!(close_stale_open_sessions(&conn, "day:b").unwrap(), 1);
+        assert!(get_open_session(&conn, "day:a").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_close_respects_pinned_label() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+
+        let sid = create_session(&conn, "day:a", "llm label", 1000, 2000, false, "llm", true).unwrap();
+        rename_session(&conn, sid, "my name").unwrap(); // pins, stays open
+
+        // Label refresh and final label must both respect the user's name
+        update_open_label(&conn, sid, "llm rewrite").unwrap();
+        close_session(&conn, sid, Some("llm final")).unwrap();
+        let s = get_session(&conn, sid).unwrap().unwrap();
+        assert_eq!(s.label, "my name");
+        assert!(!s.open);
+    }
+
+    #[test]
+    fn test_prune_keeps_pinned_sessions() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+
+        // Old event in a pinned session, old event in an unpinned one
+        let e1 = insert_event(&conn, 1000, "app_focus", Some("A"), None, None).unwrap();
+        let e2 = insert_event(&conn, 2000, "app_focus", Some("B"), None, None).unwrap();
+        let pinned = create_session(&conn, "day:x", "Mine", 1000, 1000, false, "user", false).unwrap();
+        let unpinned = create_session(&conn, "day:x", "LLM", 2000, 2000, false, "llm", false).unwrap();
+        assign_event_session(&conn, e1, Some(pinned)).unwrap();
+        assign_event_session(&conn, e2, Some(unpinned)).unwrap();
+
+        // Prune everything — both sessions are now empty
+        assert_eq!(prune_events(&conn, 10_000).unwrap(), 2);
+        // The user's session survives; the LLM's is dead weight and goes
+        assert!(get_session(&conn, pinned).unwrap().is_some());
+        assert!(get_session(&conn, unpinned).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_get_event_by_id() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+        let id = insert_event(&conn, 1000, "app_focus", Some("iTerm2"), None, None).unwrap();
+        assert_eq!(get_event(&conn, id).unwrap().unwrap().app.as_deref(), Some("iTerm2"));
+        assert!(get_event(&conn, id + 999).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_clear_unpinned_detaches_events() {
+        let dir = TempDir::new().unwrap();
+        init_databases(dir.path()).unwrap();
+        let conn = open_events_db(dir.path()).unwrap();
+
+        let e1 = insert_event(&conn, 1000, "app_focus", Some("A"), None, None).unwrap();
+        let sid = create_session(&conn, "day:x", "One", 1000, 1000, false, "llm", false).unwrap();
+        assign_event_session(&conn, e1, Some(sid)).unwrap();
+        update_event_llm_desc(&conn, e1, "writing code").unwrap();
+
+        assert_eq!(clear_unpinned_sessions(&conn, "day:x").unwrap(), 1);
+        let ev = query_recent_events(&conn, 0).unwrap();
+        assert_eq!(ev[0].session_id, None);
+        // description survives reorganization
+        assert_eq!(ev[0].llm_desc.as_deref(), Some("writing code"));
     }
 
     #[test]

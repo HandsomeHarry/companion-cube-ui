@@ -30,7 +30,14 @@ pub async fn handle_briefing(root: &DataRoot, json: bool) -> Result<()> {
         let events = ccube_core::db::query_recent_events(&conn, since_ms)?;
         let profile = ccube_core::memory::read_profile(&root.memory_dir)?;
         let patterns = ccube_core::memory::read_patterns(&root.memory_dir)?;
-        let briefing = ccube_core::briefing::build_v2(now_ms, &events, &profile, &patterns, &[]);
+        let current_activity = ccube_core::db::get_open_session(
+            &conn,
+            &format!("day:{}", chrono::Local::now().format("%Y-%m-%d")),
+        )
+        .ok()
+        .flatten()
+        .map(|s| s.label);
+        let briefing = ccube_core::briefing::build_v2(now_ms, &events, &profile, &patterns, &[], current_activity);
 
         if json {
             println!("{}", serde_json::to_string_pretty(&briefing)?);
@@ -63,7 +70,16 @@ pub async fn handle_detect(root: &DataRoot, dry_run: bool, json: bool) -> Result
             let profile = ccube_core::memory::read_profile(&root.memory_dir)?;
             let patterns = ccube_core::memory::read_patterns(&root.memory_dir)?;
             let briefing =
-                ccube_core::briefing::build_v2(now_ms, &events, &profile, &patterns, &[]);
+                {
+                let current_activity = ccube_core::db::get_open_session(
+                    &conn,
+                    &format!("day:{}", chrono::Local::now().format("%Y-%m-%d")),
+                )
+                .ok()
+                .flatten()
+                .map(|s| s.label);
+                ccube_core::briefing::build_v2(now_ms, &events, &profile, &patterns, &[], current_activity)
+            };
 
             let llm =
                 ccube_core::llm::LlamaCppClient::from_env().map_err(|e| anyhow::anyhow!(e))?;

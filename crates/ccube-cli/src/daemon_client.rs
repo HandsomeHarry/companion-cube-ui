@@ -2,7 +2,9 @@ use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-const DAEMON_URL: &str = "http://127.0.0.1:7431";
+// All daemon API routes live under /api since the browser pivot (the bare
+// root serves the embedded SvelteKit UI, which answers any path with HTML 200).
+const DAEMON_URL: &str = "http://127.0.0.1:7431/api";
 
 /// Check if the daemon is running by hitting /health with a short timeout.
 pub async fn is_daemon_running() -> bool {
@@ -79,9 +81,16 @@ pub async fn post_empty_timeout<T: DeserializeOwned>(
 
 /// POST a JSON body to the daemon and get a JSON response.
 pub async fn post_json<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Result<T> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()?;
+    post_json_timeout(path, body, std::time::Duration::from_secs(5)).await
+}
+
+/// POST a JSON body with a custom timeout (holistic organize can take minutes).
+pub async fn post_json_timeout<B: Serialize, T: DeserializeOwned>(
+    path: &str,
+    body: &B,
+    timeout: std::time::Duration,
+) -> Result<T> {
+    let client = reqwest::Client::builder().timeout(timeout).build()?;
     let resp = client
         .post(format!("{DAEMON_URL}{path}"))
         .json(body)

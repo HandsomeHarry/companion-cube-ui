@@ -2,6 +2,7 @@
 target/
 debug/
 release/
+dist/
 
 # IDE
 .idea/
@@ -28,3 +29,14 @@ Thumbs.db
 nul
 ShiyiYu_Portfolio_LQ.pdf
 design/
+# ...but the app icon source ships with the repo (make-bundle.sh needs it)
+!design/icon-1024.png
+
+# Node frontend
+node_modules/
+.svelte-kit/
+build/
+
+# Installed agent skills (taste-skill)
+.agents/
+skills-lock.json

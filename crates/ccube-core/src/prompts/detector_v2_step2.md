@@ -10,6 +10,14 @@ should be left alone, or has something worth saving for later.
 
 {patterns}
 
+## What they are currently working on
+
+{current_activity}
+
+Judge drift relative to this: activity that serves it — including reference
+videos, related reading, quick communication — is on-task. Activity unrelated
+to it that grows beyond a quick check is drift.
+
 ## Annotated timeline
 
 Each event has been annotated with an inferred intent by the perception stage.
