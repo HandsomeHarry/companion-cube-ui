@@ -62,8 +62,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> Ad-hoc codesign"
-codesign --force --deep --sign - "$APP"
+# Sign with the stable self-signed dev identity, not ad-hoc. Ad-hoc gives a
+# cdhash-based designated requirement that changes every rebuild, so macOS
+# TCC forgets Screen Recording / Accessibility grants and re-prompts forever.
+# A real cert makes the requirement constant, so a grant given once sticks.
+echo "==> Code-signing with stable dev identity"
+"$(dirname "$0")/dev-signing-identity.sh"
+KEYCHAIN="$HOME/Library/Keychains/ccube-signing.keychain-db"
+security unlock-keychain -p "ccube-dev" "$KEYCHAIN" 2>/dev/null || true
+codesign --force --sign "Companion Cube Dev" --identifier "com.companioncube.daemon" "$APP"
 
 echo "==> Done: $APP (v$VERSION)"
+echo "    Designated requirement (stable across rebuilds):"
+codesign -d -r- "$APP" 2>&1 | grep designated | sed 's/^/      /'
 echo "    Verify: open '$APP' && curl -s http://127.0.0.1:7431/api/health"
