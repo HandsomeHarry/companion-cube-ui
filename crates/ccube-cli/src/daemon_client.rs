@@ -81,9 +81,16 @@ pub async fn post_empty_timeout<T: DeserializeOwned>(
 
 /// POST a JSON body to the daemon and get a JSON response.
 pub async fn post_json<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Result<T> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()?;
+    post_json_timeout(path, body, std::time::Duration::from_secs(5)).await
+}
+
+/// POST a JSON body with a custom timeout (holistic organize can take minutes).
+pub async fn post_json_timeout<B: Serialize, T: DeserializeOwned>(
+    path: &str,
+    body: &B,
+    timeout: std::time::Duration,
+) -> Result<T> {
+    let client = reqwest::Client::builder().timeout(timeout).build()?;
     let resp = client
         .post(format!("{DAEMON_URL}{path}"))
         .json(body)

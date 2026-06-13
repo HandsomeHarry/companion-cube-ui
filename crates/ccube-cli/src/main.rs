@@ -119,6 +119,17 @@ enum DataCommands {
     },
     /// Show today's activity sessions (open and solidified)
     Sessions,
+    /// Show one session's events, descriptions, and screen context
+    Session {
+        /// Session ID (from `ccube data sessions`)
+        id: i64,
+    },
+    /// Re-group the day's activity now (holistic ⚡ Organize)
+    Organize {
+        /// Day to organize, YYYY-MM-DD (default: today)
+        #[arg(long)]
+        day: Option<String>,
+    },
     /// Delete events older than 14 days
     Prune,
     /// List corrections
@@ -276,6 +287,12 @@ async fn main() -> Result<()> {
                 }
                 DataCommands::Sessions => {
                     commands::activity::handle_sessions(&root).await?;
+                }
+                DataCommands::Session { id } => {
+                    commands::activity::handle_session_detail(&root, id)?;
+                }
+                DataCommands::Organize { day } => {
+                    commands::activity::handle_organize(day).await?;
                 }
                 DataCommands::Prune => {
                     commands::activity::handle_prune(&root)?;

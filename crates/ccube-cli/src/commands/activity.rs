@@ -143,3 +143,78 @@ pub async fn handle_sessions(root: &ccube_core::paths::DataRoot) -> anyhow::Resu
     }
     Ok(())
 }
+
+/// `ccube data session <id>` — one session's events with descriptions and the
+/// screen context that drove grouping. Direct DB read (no daemon needed).
+pub fn handle_session_detail(root: &DataRoot, id: i64) -> anyhow::Result<()> {
+    let conn = db::open_events_db(&root.data_dir)?;
+    let session = match db::get_session(&conn, id)? {
+        Some(s) => s,
+        None => {
+            println!("No session #{id}. List them with: ccube data sessions");
+            return Ok(());
+        }
+    };
+    let state = if session.open {
+        "open"
+    } else if session.pinned {
+        "pinned"
+    } else {
+        "closed"
+    };
+    println!("Session #{id}  [{state}]  {}", session.label);
+    println!("  range {}  ·  created_by {}", session.range_key, session.created_by);
+    println!();
+
+    let events = db::query_events_by_session(&conn, id)?;
+    println!("{} events:", events.len());
+    for e in &events {
+        let desc = e
+            .llm_desc
+            .as_deref()
+            .or(e.vision_desc.as_deref())
+            .or(e.title.as_deref())
+            .unwrap_or("-");
+        let app = e.app.as_deref().unwrap_or("-");
+        let mins = e.duration_ms.unwrap_or(0) / 60_000;
+        println!("  {}  {:<16} {}  ({}m)", format_time_ms(e.ts), truncate(app, 16), truncate(desc, 50), mins);
+    }
+    Ok(())
+}
+
+/// `ccube data organize [--day YYYY-MM-DD]` — trigger a holistic re-group of
+/// the day. Requires the daemon (it holds the LLM client).
+pub async fn handle_organize(day: Option<String>) -> anyhow::Result<()> {
+    if !daemon_client::is_daemon_running().await {
+        anyhow::bail!("the daemon must be running to organize (it runs the local LLM)");
+    }
+    let range_key = match day {
+        Some(d) => format!("day:{d}"),
+        None => format!("day:{}", chrono::Local::now().format("%Y-%m-%d")),
+    };
+    println!("Organizing {range_key} … (holistic pass over the day; may take a moment)");
+    let body = serde_json::json!({ "range_key": range_key, "full": true });
+    let resp: SummariesResp = daemon_client::post_json_timeout(
+        "/summarize",
+        &body,
+        std::time::Duration::from_secs(600),
+    )
+    .await?;
+    println!("{} sessions:", resp.groups.len());
+    for g in &resp.groups {
+        let state = if g.open { "open" } else { "closed" };
+        println!("  [{state:>6}] {}  ({} events)", g.title, g.events.len());
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct SummariesResp {
+    groups: Vec<SessionGroupResp>,
+}
+#[derive(serde::Deserialize)]
+struct SessionGroupResp {
+    title: String,
+    open: bool,
+    events: Vec<serde_json::Value>,
+}

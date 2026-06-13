@@ -889,9 +889,21 @@ async fn set_llm_config(
 /// Events shorter than this are excluded from grouping (sub-second noise).
 const SUMMARIZE_MIN_DURATION_MS: i64 = 0;
 
-/// A gap longer than this between consecutive events starts a new segment
-/// even without an idle marker (daemon offline, machine asleep).
-const MAX_SESSION_GAP_MS: i64 = 15 * 60 * 1000;
+/// A break only ends an activity when the person was away this long. Short
+/// idles (the 5-min idle-detection threshold, for "Away" rows and honest time
+/// accounting) do NOT split a session — stepping away for coffee doesn't end
+/// "working on companion cube".
+const SESSION_AFK_MS: i64 = 20 * 60 * 1000;
+
+/// A raw gap (no idle marker — daemon offline, machine asleep) this long also
+/// ends an activity.
+const MAX_SESSION_GAP_MS: i64 = SESSION_AFK_MS;
+
+/// Events per holistic segmentation call. Large enough that the model sees
+/// the through-line of a work session and groups coarsely (output is just
+/// labels + index lists, so it stays reliable); a whole-day segment is
+/// chunked at this size and each chunk continues the previous activity.
+const SEGMENT_CHUNK: usize = 30;
 
 /// Split a time-ordered event list into segments at break markers
 /// (idle_start timestamps) and at long gaps. Sessions never span a segment
@@ -963,7 +975,7 @@ fn format_event_line(n: Option<usize>, event: &ccube_core::db::EventRow) -> Stri
         .ocr_text
         .as_deref()
         .filter(|t| !t.is_empty())
-        .map(|t| format!(" | Screen: {}", &t[..t.floor_char_boundary(120)]))
+        .map(|t| format!(" | Screen: {}", &t[..t.floor_char_boundary(200)]))
         .unwrap_or_default();
     let vision = event
         .vision_desc
@@ -975,103 +987,145 @@ fn format_event_line(n: Option<usize>, event: &ccube_core::db::EventRow) -> Stri
     format!("{prefix}[{time}] {app} – {title} ({dur}){ocr}{vision}")
 }
 
-/// The LLM's verdict on a batch of new events vs. the open session.
-#[derive(Debug, PartialEq)]
-struct MembershipDecision {
-    /// Events 1..=k of the batch belong to the current activity.
-    continue_through: usize,
-    /// Refreshed (or, for a new session, initial) activity label.
+/// One activity the holistic segmentation carved out of a list of events.
+#[derive(Debug, PartialEq, Clone)]
+struct Activity {
     label: Option<String>,
     distraction: bool,
-    /// Per-event descriptions, keyed by 1-based batch index.
-    descriptions: Vec<(usize, String)>,
+    /// 1-based indices into the event list that was sent to the LLM.
+    event_idxs: Vec<usize>,
+    /// Per-event descriptions, keyed by the same 1-based index.
+    descriptions: std::collections::HashMap<usize, String>,
 }
 
-impl MembershipDecision {
-    /// Fallback when the LLM is unreachable or unparseable: absorb the whole
-    /// batch silently rather than re-sending it every five minutes.
-    fn absorb_all(batch_len: usize) -> Self {
-        Self {
-            continue_through: batch_len,
-            label: None,
-            distraction: false,
-            descriptions: Vec::new(),
-        }
-    }
+/// Parse the holistic segmentation JSON leniently. Ollama ignores grammars and
+/// small models emit numbers as strings / skip fields, so we tolerate all of
+/// that. Guarantees: activities are ordered; every input event index 1..=n is
+/// assigned to exactly one activity (unmentioned events attach to the nearest
+/// preceding activity, or a single fallback activity); never panics.
+/// One unlabeled activity covering everything — the last resort when the LLM
+/// output can't be parsed even after a retry.
+fn fallback_activity(n: usize) -> Vec<Activity> {
+    vec![Activity {
+        label: None,
+        distraction: false,
+        event_idxs: (1..=n).collect(),
+        descriptions: std::collections::HashMap::new(),
+    }]
 }
 
-/// Parse the membership JSON leniently (Ollama ignores grammars; small
-/// models emit numbers as strings and skip fields).
-fn parse_membership(json: &str, batch_len: usize, has_open: bool) -> MembershipDecision {
-    let v: serde_json::Value = match serde_json::from_str(json) {
-        Ok(v) => v,
-        Err(_) => return MembershipDecision::absorb_all(batch_len),
+/// Lenient parse used at call sites that don't retry (and by tests): returns a
+/// fallback single activity when the JSON can't be parsed.
+fn parse_segments(json: &str, n: usize) -> Vec<Activity> {
+    try_parse_segments(json, n).unwrap_or_else(|| fallback_activity(n))
+}
+
+/// Parse the holistic segmentation JSON, or `None` if it is unusable (invalid
+/// JSON, or no non-empty `activities`). Distinguishing failure from a model
+/// that legitimately returned one activity lets the caller retry instead of
+/// silently producing a giant unlabeled blob.
+fn try_parse_segments(json: &str, n: usize) -> Option<Vec<Activity>> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let arr = match v.get("activities").and_then(|a| a.as_array()) {
+        Some(a) if !a.is_empty() => a,
+        _ => return None,
     };
 
-    let as_usize = |v: &serde_json::Value| -> Option<usize> {
+    let as_idx = |v: &serde_json::Value| -> Option<usize> {
         match v {
-            serde_json::Value::Number(n) => n.as_i64().map(|n| n.max(0) as usize),
-            serde_json::Value::String(s) => s.trim().parse::<i64>().ok().map(|n| n.max(0) as usize),
+            serde_json::Value::Number(num) => num.as_i64().map(|n| n as usize),
+            serde_json::Value::String(s) => s.trim().parse::<usize>().ok(),
             _ => None,
         }
     };
 
-    let mut k = v
-        .get("continue_through")
-        .and_then(as_usize)
-        .unwrap_or(batch_len)
-        .min(batch_len);
-    // A fresh activity owns at least its first event, or we'd never progress.
-    if !has_open && k == 0 {
-        k = 1;
+    let mut activities = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for a in arr {
+        let label = a
+            .get("label")
+            .and_then(|l| l.as_str())
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(String::from);
+        let distraction = a
+            .get("distraction")
+            .map(|d| d.as_bool().unwrap_or(d.as_str() == Some("true")))
+            .unwrap_or(false);
+        let event_idxs: Vec<usize> = a
+            .get("events")
+            .and_then(|e| e.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(as_idx)
+                    .filter(|&i| (1..=n).contains(&i) && seen.insert(i))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let descriptions = a
+            .get("descriptions")
+            .and_then(|d| d.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, val)| {
+                        let idx = k.trim().parse::<usize>().ok()?;
+                        let desc = val.as_str()?.trim();
+                        ((1..=n).contains(&idx) && !desc.is_empty())
+                            .then(|| (idx, desc.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !event_idxs.is_empty() {
+            activities.push(Activity { label, distraction, event_idxs, descriptions });
+        }
     }
 
-    let label = v
-        .get("label")
-        .and_then(|l| l.as_str())
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(String::from);
-
-    let distraction = v
-        .get("distraction")
-        .map(|d| d.as_bool().unwrap_or(d.as_str() == Some("true")))
-        .unwrap_or(false);
-
-    let descriptions = v
-        .get("descriptions")
-        .and_then(|d| d.as_object())
-        .map(|obj| {
-            obj.iter()
-                .filter_map(|(key, val)| {
-                    let idx = key.trim().parse::<usize>().ok()?;
-                    let desc = val.as_str()?.trim();
-                    ((1..=batch_len).contains(&idx) && !desc.is_empty())
-                        .then(|| (idx, desc.to_string()))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    MembershipDecision {
-        continue_through: k,
-        label,
-        distraction,
-        descriptions,
+    if activities.is_empty() {
+        return None;
     }
+
+    // Any event the model forgot attaches to the nearest preceding activity
+    // (or the first), so no event is ever dropped.
+    for i in 1..=n {
+        if !seen.contains(&i) {
+            let target = activities
+                .iter()
+                .rposition(|a| a.event_idxs.iter().any(|&x| x < i))
+                .unwrap_or(0);
+            activities[target].event_idxs.push(i);
+        }
+    }
+    for a in &mut activities {
+        a.event_idxs.sort_unstable();
+    }
+    Some(activities)
 }
 
-const LABEL_EXAMPLES: &str = r#""terminal — working on companion cube"
-"browsing dieter rams design rules and projects"
-"working on history essay while watching history videos and reading papers""#;
+/// Label contract shared by every grouping prompt. Labels name the *purpose
+/// with its subject*, drawn from screen content — never the bare app category.
+const LABEL_SPEC: &str = r#"A label names the PURPOSE and its concrete SUBJECT, taken from what is on
+screen — not the app name. Use a "<A> while <B>" label when the person is
+genuinely doing two things at once.
+Good:
+  "terminal — working on companion cube"
+  "browsing dieter rams design rules and projects"
+  "working on history essay while watching history videos and reading papers"
+Bad (never do this — these name the tool or activity type, not the subject):
+  "mixed work session involving terminal and browsing"
+  "web browsing", "using Brave Browser", "general system interaction""#;
 
-/// Prompt asking where the current activity ends within a batch of new events.
-fn build_membership_prompt(
-    open: Option<(&str, &[ccube_core::db::EventRow])>,
-    batch: &[ccube_core::db::EventRow],
+/// Holistic segmentation prompt: partition a list of events into coherent
+/// activities in one pass. Seeing all events at once (instead of greedy
+/// per-batch judgments) is what keeps related work in one activity. When
+/// `ongoing` is set, the first events continue that activity unless the
+/// person has clearly moved on.
+fn build_segment_prompt(
+    events: &[ccube_core::db::EventRow],
+    ongoing: Option<&str>,
     corrections: &[String],
 ) -> String {
-    let numbered: Vec<String> = batch
+    let numbered: Vec<String> = events
         .iter()
         .enumerate()
         .map(|(i, e)| format_event_line(Some(i + 1), e))
@@ -1081,7 +1135,7 @@ fn build_membership_prompt(
         String::new()
     } else {
         format!(
-            "\nThe user has corrected past grouping — learn from these:\n{}\n",
+            "\nThe person has corrected past grouping — learn their preferences:\n{}\n",
             corrections
                 .iter()
                 .map(|c| format!("- {c}"))
@@ -1090,58 +1144,42 @@ fn build_membership_prompt(
         )
     };
 
-    match open {
-        Some((label, tail)) => {
-            let tail_lines: Vec<String> =
-                tail.iter().map(|e| format_event_line(None, e)).collect();
-            format!(
-                r#"You maintain a person's computer activity timeline by deciding where one activity ends and the next begins.
-
-CURRENT ACTIVITY: "{label}"
-Its latest events:
-{tail}
-
-NEW EVENTS (oldest first):
-{events}
-
-How many of the new events (counting from 1) still belong to the current activity? People interleave: quick message checks, reference lookups, and videos that serve the same purpose all stay in ONE activity. It ends only when the person clearly moves on to something unrelated.
-{corrections}
-Reply with ONLY this JSON:
-{{"continue_through": <number of the last belonging event, 0 if even the first starts something new>,
- "label": "<improved label for the current activity, given what you now know>",
- "distraction": <true if it is entertainment or aimless browsing>,
- "descriptions": {{"1": "<3-8 specific words>", "2": "..."}}}}
-
-Labels name the purpose with its context, like:
-{examples}"#,
-                label = label,
-                tail = tail_lines.join("\n"),
-                events = numbered.join("\n"),
-                corrections = corrections_section,
-                examples = LABEL_EXAMPLES,
-            )
-        }
-        None => format!(
-            r#"You maintain a person's computer activity timeline by deciding where one activity ends and the next begins.
-
-EVENTS (oldest first):
-{events}
-
-These begin a new activity. How many of them (counting from 1) belong to that first activity, before the person moves on to something different? People interleave: quick message checks, reference lookups, and videos that serve the same purpose all stay in ONE activity.
-{corrections}
-Reply with ONLY this JSON:
-{{"continue_through": <number of the last event still in the first activity>,
- "label": "<specific label for the first activity>",
- "distraction": <true if it is entertainment or aimless browsing>,
- "descriptions": {{"1": "<3-8 specific words>", "2": "..."}}}}
-
-Labels name the purpose with its context, like:
-{examples}"#,
-            events = numbered.join("\n"),
-            corrections = corrections_section,
-            examples = LABEL_EXAMPLES,
+    let ongoing_section = match ongoing {
+        Some(label) => format!(
+            "\nThese events follow an ongoing activity: \"{label}\". Most of them \
+             continue it — only begin a NEW activity when the person clearly \
+             shifts to something unrelated and stays there.\n"
         ),
-    }
+        None => String::new(),
+    };
+
+    format!(
+        r#"You organize a person's computer activity into a timeline of meaningful activities.
+
+EVENTS (oldest first), each with on-screen text and a vision description:
+{events}
+{ongoing}
+Group consecutive events into a SMALL number of substantial activities —
+think 3 to 6 for a whole work session, not dozens. A person working on
+something dips into messages, looks things up, and watches a video, then
+returns; all of that is ONE activity, named by the main task. A brief
+detour (one or two events, a couple of minutes) is part of the activity
+around it — never its own activity. Only start a new activity when the
+person clearly changes what they are doing and stays there for a while.
+When two threads genuinely run together, name them as "<A> while <B>".
+
+{label_spec}
+{corrections}
+Reply with ONLY this JSON — every event number assigned to exactly one
+activity, activities in order (oldest first):
+{{"activities": [
+  {{"label": "<purpose — subject>", "distraction": <true|false>, "events": [1,2,3]}}
+]}}"#,
+        events = numbered.join("\n"),
+        ongoing = ongoing_section,
+        label_spec = LABEL_SPEC,
+        corrections = corrections_section,
+    )
 }
 
 /// Prompt for the final label when a session solidifies.
@@ -1161,10 +1199,11 @@ fn build_solidify_prompt(working_label: &str, events: &[ccube_core::db::EventRow
         })
         .collect();
     format!(
-        r#"This activity is finished. Name it in ONE specific phrase: the purpose with its context, like:
-{LABEL_EXAMPLES}
+        r#"This activity is finished. Give it ONE final name.
 
-Working label: "{working_label}"
+{LABEL_SPEC}
+
+Working label so far: "{working_label}"
 Everything that happened (oldest first):
 {events}
 
@@ -1309,99 +1348,15 @@ fn load_sessions_response(
     })
 }
 
-/// Build the LLM prompt for summarizing events into sessions.
-fn build_summarize_prompt(events: &[ccube_core::db::EventRow], corrections: &[String]) -> String {
-    let mut lines = Vec::new();
-    for (i, event) in events.iter().enumerate() {
-        let time = chrono::DateTime::from_timestamp_millis(event.ts)
-            .map(|t| t.format("%H:%M").to_string())
-            .unwrap_or_default();
-        let app = event.app.as_deref().unwrap_or("-");
-        let title = event.title.as_deref().unwrap_or("-");
-        let dur = event
-            .duration_ms
-            .map(|d| format!("{}s", d / 1000))
-            .unwrap_or_else(|| "?s".to_string());
-
-        // Include OCR text (screen content) when available
-        let ocr = event
-            .ocr_text
-            .as_deref()
-            .filter(|t| !t.is_empty())
-            .map(|t| {
-                let truncated = &t[..t.floor_char_boundary(120)];
-                format!(" | Screen: {}", truncated)
-            })
-            .unwrap_or_default();
-
-        // Include vision description (screen understanding) when available
-        let vision = event
-            .vision_desc
-            .as_deref()
-            .filter(|d| !d.is_empty())
-            .map(|d| format!(" | Vision: {}", d))
-            .unwrap_or_default();
-
-        lines.push(format!(
-            "{}. [{}] {} – {} ({}){}{}",
-            i + 1,
-            time,
-            app,
-            title,
-            dur,
-            ocr,
-            vision
-        ));
-    }
-
-    let corrections_section = if corrections.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\nRecent user corrections (learn from these):\n{}\n",
-            corrections.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n")
-        )
-    };
-
-    format!(
-        r#"Analyze these computer activity events and group them into activities.
-
-For each group, provide:
-1. A descriptive title (5-10 words) that captures the overall ACTIVITY the user was engaged in
-   Good: "Working on history project about World War 2", "Chilling with friends on Discord"
-   Bad: "Web Browsing", "Social Chat", "Coding"
-2. For EACH event, a short description (3-8 words) of what the user was specifically doing
-   Use the app name, window title, screen content, AND vision data to infer specifics
-   Good: "watching WWII documentary on YouTube", "writing history essay in Word"
-   Bad: "using Brave Browser", "in Microsoft Word"
-3. Whether the activity is a distraction (entertainment/aimless browsing) or focused work
-
-Rules:
-- Group consecutive events that belong to the same activity
-- Use ALL available context: app name, window title, OCR screen text, and vision description
-- Include ALL event numbers, do not skip any
-- Events are listed oldest first
-{}Events:
-{}
-
-Respond with ONLY a JSON object. Use this exact format:
-{{"groups":[{{"title":"Activity Title","event_ids":[1,2],"distraction":false,"descriptions":{{"1":"watching WWII documentary","2":"writing history essay"}}}}]}}
-
-Make sure every field is separated by a comma. Output:
-{{"groups":[...]}}"#,
-        corrections_section,
-        lines.join("\n")
-    )
-}
-
-/// Core summarization logic.
+/// Core summarization: holistic re-segmentation of the unsolidified tail.
 ///
-/// The LLM proposes; the sessions table is the source of truth. An
-/// incremental pass (`full = false`, the 5-minute auto-loop) only groups
-/// events that belong to no session yet — it appends, never rewrites. A full
-/// pass (`full = true`, the ⚡ Organize button) clears *unpinned* sessions in
-/// the range and regroups, but never touches pinned (user-edited) sessions
-/// or their events.
+/// One algorithm for both the 5-minute auto pass and ⚡ Organize. Solidified
+/// sessions are frozen; the *open* session and any newer ungrouped events form
+/// the tail. The tail is split only on long AFK / large gaps, and each segment
+/// is partitioned into coherent activities by a single holistic LLM call
+/// (seeing all its events at once — the cure for greedy over-fragmentation).
+/// `full = true` first clears unpinned sessions so the whole range is rebuilt;
+/// pinned (user-edited) sessions are never touched.
 pub async fn run_summarize(
     state: &AppState,
     since_ms: Option<i64>,
@@ -1409,33 +1364,47 @@ pub async fn run_summarize(
     range_key: Option<String>,
     full: bool,
 ) -> Result<SummariesResponse, ApiError> {
-    let conn =
-        db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
+    let conn = db::open_events_db(&state.data_root.data_dir).map_err(ApiError::internal)?;
     let now = chrono::Utc::now().timestamp_millis();
     let range_key = range_key.unwrap_or_else(|| day_range_key(now));
+    let is_today = range_key == day_range_key(now);
     let since = since_ms.unwrap_or_else(|| day_start_ms(now));
     let until = until_ms.unwrap_or(i64::MAX);
 
+    db::close_stale_open_sessions(&conn, &range_key).map_err(ApiError::internal)?;
     if full {
-        let cleared =
-            db::clear_unpinned_sessions(&conn, &range_key).map_err(ApiError::internal)?;
+        let cleared = db::clear_unpinned_sessions(&conn, &range_key).map_err(ApiError::internal)?;
         tracing::info!(range_key, cleared, "organize: cleared unpinned sessions");
     }
 
     let all_events = db::query_recent_events(&conn, since).map_err(ApiError::internal)?;
 
-    // Away periods and long gaps are hard session boundaries: whatever the
-    // user does after lunch is a new session, no matter how similar. Collect
-    // break markers before filtering down to groupable rows.
-    let break_ts: Vec<i64> = all_events
+    // Only AFK ≥ SESSION_AFK_MS ends an activity. The away length is stored on
+    // the idle_start row (see main.rs AFK accounting); a 5-min coffee idle is
+    // below the bar and stays inside the session.
+    let long_breaks: Vec<i64> = all_events
         .iter()
-        .filter(|e| e.kind == "idle_start")
+        .filter(|e| e.kind == "idle_start" && e.duration_ms.unwrap_or(0) >= SESSION_AFK_MS)
         .map(|e| e.ts)
         .collect();
 
-    // Only unassigned app_focus events get grouped; events in sessions
-    // (pinned or fresh) are already owned.
-    let events: Vec<_> = all_events
+    // The prior open session, if any. A long break after its last event means
+    // the activity is over — solidify it (refine the final label) before
+    // re-segmenting what follows.
+    let mut open = db::get_open_session(&conn, &range_key).map_err(ApiError::internal)?;
+    if let Some(ref s) = open
+        && !s.pinned
+        && long_breaks.iter().any(|&b| b > s.end_ts)
+    {
+        let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
+        let (label, distraction) = solidify_label(state.llm.as_ref(), &s.label, &members).await;
+        finish_close(&conn, s, label, distraction);
+        open = None;
+    }
+
+    // The tail to (re)group: every ungrouped event in range. After `full` this
+    // is the whole range; otherwise it is the events captured since last pass.
+    let ungrouped: Vec<_> = all_events
         .into_iter()
         .filter(|e| {
             e.kind == "app_focus"
@@ -1445,174 +1414,120 @@ pub async fn run_summarize(
         })
         .collect();
 
-    // Lifecycle that must run even when no new events arrived:
-    // day rollover, and an AFK/sleep break after the open session's last
-    // event solidifies it (the user left; the activity is over).
-    db::close_stale_open_sessions(&conn, &range_key).map_err(ApiError::internal)?;
-    let mut open = db::get_open_session(&conn, &range_key).map_err(ApiError::internal)?;
-    if let Some(ref s) = open
-        && break_ts.iter().any(|&b| b > s.end_ts)
-    {
-        let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
-        let (label, distraction) = solidify_label(state.llm.as_ref(), &s.label, &members).await;
-        finish_close(&conn, s, if s.pinned { None } else { label }, distraction);
-        open = None;
-    }
-
-    if events.is_empty() {
+    if ungrouped.is_empty() {
         return load_sessions_response(&conn, &range_key);
     }
 
-    // Load recent corrections for prompt context (best-effort)
+    // Correction context: moves teach membership, renames teach naming taste.
     let corrections: Vec<String> = db::open_corrections_db(&state.data_root.data_dir)
         .ok()
-        .and_then(|conn| {
-            db::list_corrections(&conn, 5, false).ok()
-        })
+        .and_then(|c| db::list_corrections(&c, 5, false).ok())
         .unwrap_or_default()
         .into_iter()
         .filter_map(|c| {
-            // Both moves and renames teach the grouping LLM: reassigns show
-            // which events belong together, renames show the user's naming
-            // taste for future titles.
-            if c.user_verdict.starts_with("group_reassign")
-                || c.user_verdict.starts_with("group_rename")
-            {
-                Some(c.user_verdict)
-            } else {
-                None
-            }
+            (c.user_verdict.starts_with("group_reassign")
+                || c.user_verdict.starts_with("group_rename"))
+            .then_some(c.user_verdict)
         })
         .collect();
 
-    const BATCH_SIZE: usize = 40;
+    let segments = split_at_breaks(ungrouped, &long_breaks, MAX_SESSION_GAP_MS);
 
-    let segments = split_at_breaks(events, &break_ts, MAX_SESSION_GAP_MS);
+    for (si, segment) in segments.iter().enumerate() {
+        // The prior open session only continues into the first segment; any
+        // segment after a long break starts a fresh activity.
+        let mut continue_id: Option<i64> = if si == 0 { open.as_ref().map(|s| s.id) } else { None };
+        let mut ongoing_label: Option<String> =
+            if si == 0 { open.as_ref().map(|s| s.label.clone()) } else { None };
 
-    for segment in &segments {
-        // The open session only survives into a segment it is contiguous
-        // with: any break marker or long gap in between solidifies it.
-        if let Some(ref s) = open {
-            let first_ts = segment.first().map(|e| e.ts).unwrap_or(now);
-            let break_between = break_ts.iter().any(|&b| b > s.end_ts && b <= first_ts);
-            if break_between || first_ts.saturating_sub(s.end_ts) > MAX_SESSION_GAP_MS {
-                let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
-                let (label, distraction) =
-                    solidify_label(state.llm.as_ref(), &s.label, &members).await;
-                finish_close(&conn, s, if s.pinned { None } else { label }, distraction);
-                open = None;
-            }
-        }
-
-        let mut idx = 0usize;
-        while idx < segment.len() {
-            let batch = &segment[idx..(idx + BATCH_SIZE).min(segment.len())];
-
-            // Context for the judgment: the open session's label and its
-            // most recent members.
-            let open_tail: Option<(String, Vec<ccube_core::db::EventRow>)> = match open {
-                Some(ref s) => {
-                    let members =
-                        db::query_events_by_session(&conn, s.id).map_err(ApiError::internal)?;
-                    let tail: Vec<_> = members.into_iter().rev().take(5).rev().collect();
-                    Some((s.label.clone(), tail))
-                }
-                None => None,
-            };
-
-            let prompt = build_membership_prompt(
-                open_tail.as_ref().map(|(l, t)| (l.as_str(), t.as_slice())),
-                batch,
-                &corrections,
-            );
-            let decision = match state
-                .llm
-                .complete(&prompt, "", 4096, SUMMARIZE_TEMPERATURE)
-                .await
-            {
-                Ok(resp) => {
-                    parse_membership(&extract_json(resp.content.trim()), batch.len(), open.is_some())
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "membership pass failed; absorbing batch");
-                    MembershipDecision::absorb_all(batch.len())
-                }
-            };
-
-            // Persist this batch's outcome atomically. The transaction is
-            // scoped to a block: its binding must be dead before the next
-            // await or the spawned future stops being Send.
-            let k = decision.continue_through;
-            let joining = &batch[..k];
-            let session_id = {
-            let tx = conn.unchecked_transaction().map_err(ApiError::internal)?;
-            let session_id = match open {
-                Some(ref s) => {
-                    if k > 0 && let Some(ref label) = decision.label {
-                        db::update_open_label(&tx, s.id, label).map_err(ApiError::internal)?;
+        for chunk in segment.chunks(SEGMENT_CHUNK) {
+            let prompt = build_segment_prompt(chunk, ongoing_label.as_deref(), &corrections);
+            // One holistic call, with a single retry on unparseable output —
+            // a transient ramble shouldn't collapse a whole chunk into one
+            // unlabeled blob. Only on a second failure do we fall back.
+            let mut activities: Option<Vec<Activity>> = None;
+            for attempt in 0..2 {
+                match state
+                    .llm
+                    .complete(&prompt, "", SUMMARIZE_MAX_TOKENS, SUMMARIZE_TEMPERATURE)
+                    .await
+                {
+                    Ok(resp) => {
+                        activities = try_parse_segments(&extract_json(resp.content.trim()), chunk.len());
+                        if activities.is_some() {
+                            break;
+                        }
+                        tracing::warn!(attempt, "segmentation output unparseable; retrying");
                     }
-                    s.id
-                }
-                None => {
-                    let label = decision.label.as_deref().unwrap_or("Activity");
-                    let lo = joining.first().map(|e| e.ts).unwrap_or(now);
-                    let hi = joining.last().map(|e| e.ts).unwrap_or(now);
-                    db::create_session(
-                        &tx,
-                        &range_key,
-                        label,
-                        lo,
-                        hi,
-                        decision.distraction,
-                        "llm",
-                        true,
-                    )
-                    .map_err(ApiError::internal)?
-                }
-            };
-            for e in joining {
-                db::assign_event_session(&tx, e.id, Some(session_id))
-                    .map_err(ApiError::internal)?;
-            }
-            // Descriptions cover the whole batch; events past k keep theirs
-            // for when the next iteration assigns them.
-            for (i, desc) in &decision.descriptions {
-                if let Some(e) = batch.get(i - 1) {
-                    db::update_event_llm_desc(&tx, e.id, desc).map_err(ApiError::internal)?;
+                    Err(e) => {
+                        tracing::warn!(error = %e, attempt, "segmentation call failed");
+                    }
                 }
             }
-            tx.commit().map_err(ApiError::internal)?;
-            session_id
+            let activities = activities.unwrap_or_else(|| fallback_activity(chunk.len()));
+
+            // Persist this chunk atomically (scoped so the non-Send tx is
+            // dropped before the next await).
+            let last_sid = {
+                let tx = conn.unchecked_transaction().map_err(ApiError::internal)?;
+                let mut last_sid: Option<i64> = None;
+                for (ai, act) in activities.iter().enumerate() {
+                    let label = act.label.as_deref().unwrap_or("Activity");
+                    // The first activity of the first chunk extends the
+                    // session we're continuing; everything else is new.
+                    let sid = if ai == 0 && continue_id.is_some() {
+                        let id = continue_id.unwrap();
+                        if act.label.is_some() {
+                            db::update_open_label(&tx, id, label).map_err(ApiError::internal)?;
+                        }
+                        let _ = tx.execute(
+                            "UPDATE sessions SET distraction = ?2 WHERE id = ?1 AND pinned = 0",
+                            (id, act.distraction),
+                        );
+                        id
+                    } else {
+                        let lo = act.event_idxs.first().and_then(|&i| chunk.get(i - 1)).map(|e| e.ts).unwrap_or(now);
+                        let hi = act.event_idxs.last().and_then(|&i| chunk.get(i - 1)).map(|e| e.ts).unwrap_or(now);
+                        db::create_session(&tx, &range_key, label, lo, hi, act.distraction, "llm", false)
+                            .map_err(ApiError::internal)?
+                    };
+                    for &i in &act.event_idxs {
+                        if let Some(e) = chunk.get(i - 1) {
+                            db::assign_event_session(&tx, e.id, Some(sid)).map_err(ApiError::internal)?;
+                            if let Some(desc) = act.descriptions.get(&i) {
+                                db::update_event_llm_desc(&tx, e.id, desc).map_err(ApiError::internal)?;
+                            }
+                        }
+                    }
+                    last_sid = Some(sid);
+                }
+                tx.commit().map_err(ApiError::internal)?;
+                last_sid
             };
 
-            open = db::get_session(&conn, session_id).map_err(ApiError::internal)?;
-
-            if k < batch.len() {
-                // The activity ended inside this batch: solidify, and let the
-                // next iteration open a new session for the remainder.
-                if let Some(ref s) = open {
-                    let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
-                    let (label, distraction) =
-                        solidify_label(state.llm.as_ref(), &s.label, &members).await;
-                    finish_close(&conn, s, if s.pinned { None } else { label }, distraction);
-                }
-                open = None;
-            }
-            // k == 0 only happens when an open session rejected the whole
-            // batch; it was just solidified, so re-running the same batch
-            // with no open session is guaranteed to absorb at least one
-            // event (parse_membership forces k >= 1 then).
-            idx += k;
+            // The next chunk continues the last activity of this one.
+            continue_id = last_sid;
+            ongoing_label = activities.last().and_then(|a| a.label.clone());
         }
     }
 
-    // Past days never keep an open session — only today is still happening.
-    if range_key != day_range_key(now)
-        && let Some(ref s) = open
-    {
-        let members = db::query_events_by_session(&conn, s.id).unwrap_or_default();
-        let (label, distraction) = solidify_label(state.llm.as_ref(), &s.label, &members).await;
-        finish_close(&conn, s, if s.pinned { None } else { label }, distraction);
+    // Exactly one open session per day: the latest unpinned one, and only for
+    // today (past days are fully solidified). Bulletproof regardless of path.
+    conn.execute(
+        "UPDATE sessions SET open = 0 WHERE range_key = ?1 AND pinned = 0",
+        [&range_key],
+    )
+    .map_err(ApiError::internal)?;
+    if is_today {
+        conn.execute(
+            "UPDATE sessions SET open = 1 WHERE id = (
+                 SELECT id FROM sessions
+                 WHERE range_key = ?1 AND pinned = 0
+                   AND id IN (SELECT DISTINCT session_id FROM events WHERE session_id IS NOT NULL)
+                 ORDER BY end_ts DESC LIMIT 1)",
+            [&range_key],
+        )
+        .map_err(ApiError::internal)?;
     }
 
     load_sessions_response(&conn, &range_key)
@@ -1836,31 +1751,40 @@ mod tests {
     }
 
     #[test]
-    fn membership_lenient_parse() {
-        let d = parse_membership(
-            r#"{"continue_through":"3","label":" terminal — working on companion cube ","distraction":false,"descriptions":{"1":"editing rust code","9":"out of range","2":""}}"#,
-            5,
-            true,
+    fn segments_lenient_parse_and_full_coverage() {
+        // string indices, an out-of-range index, an empty description, and
+        // event 3 deliberately omitted from any activity.
+        let acts = parse_segments(
+            r#"{"activities":[
+                {"label":" terminal — working on companion cube ","distraction":false,
+                 "events":["1","2"],"descriptions":{"1":"editing rust code","9":"oob","2":""}},
+                {"label":"checking discord","distraction":true,"events":[4]}
+            ]}"#,
+            4,
         );
-        assert_eq!(d.continue_through, 3);
-        assert_eq!(d.label.as_deref(), Some("terminal — working on companion cube"));
-        let mut descs = d.descriptions.clone();
-        descs.sort();
-        assert_eq!(descs, vec![(1, "editing rust code".to_string())]);
+        assert_eq!(acts.len(), 2);
+        assert_eq!(acts[0].label.as_deref(), Some("terminal — working on companion cube"));
+        assert!(!acts[0].distraction);
+        assert_eq!(acts[1].distraction, true);
+        assert_eq!(acts[0].descriptions.get(&1).map(String::as_str), Some("editing rust code"));
+        assert!(acts[0].descriptions.get(&2).is_none()); // empty dropped
+        // event 3 (omitted) attaches to the nearest preceding activity (#0).
+        assert!(acts[0].event_idxs.contains(&3));
+        // every input event is assigned exactly once.
+        let mut all: Vec<usize> = acts.iter().flat_map(|a| a.event_idxs.clone()).collect();
+        all.sort_unstable();
+        assert_eq!(all, vec![1, 2, 3, 4]);
     }
 
     #[test]
-    fn membership_clamps_and_forces_progress() {
-        // over-long k clamps to batch size
-        assert_eq!(parse_membership(r#"{"continue_through":99}"#, 4, true).continue_through, 4);
-        // an open session may reject everything
-        assert_eq!(parse_membership(r#"{"continue_through":0}"#, 4, true).continue_through, 0);
-        // ...but a fresh activity must absorb at least its first event
-        assert_eq!(parse_membership(r#"{"continue_through":0}"#, 4, false).continue_through, 1);
-        // garbage absorbs everything rather than churning
-        let d = parse_membership("not json", 4, true);
-        assert_eq!(d.continue_through, 4);
-        assert!(d.label.is_none());
+    fn segments_fallback_is_one_activity() {
+        // garbage / empty → a single activity covering everything, never empty.
+        for bad in ["", "not json", r#"{"activities":[]}"#] {
+            let acts = parse_segments(bad, 3);
+            assert_eq!(acts.len(), 1, "input {bad:?}");
+            assert_eq!(acts[0].event_idxs, vec![1, 2, 3]);
+            assert!(acts[0].label.is_none());
+        }
     }
 
     #[test]
@@ -1903,5 +1827,24 @@ mod tests {
             900_000,
         );
         assert_eq!(segs.len(), 1);
+    }
+
+    #[test]
+    fn only_long_idles_break_sessions() {
+        // An idle_start row carries the away length in duration_ms. The caller
+        // keeps only those ≥ SESSION_AFK_MS as session breaks; a 5-min coffee
+        // idle is below the bar and must not split "working on X".
+        let idle = |ts: i64, away: i64| ccube_core::db::EventRow {
+            kind: "idle_start".to_string(),
+            duration_ms: Some(away),
+            ..ev(0, ts, 0)
+        };
+        let rows = [idle(100, 5 * 60_000), idle(200, 25 * 60_000)];
+        let long: Vec<i64> = rows
+            .iter()
+            .filter(|e| e.kind == "idle_start" && e.duration_ms.unwrap_or(0) >= SESSION_AFK_MS)
+            .map(|e| e.ts)
+            .collect();
+        assert_eq!(long, vec![200], "only the 25-min idle is a session break");
     }
 }
